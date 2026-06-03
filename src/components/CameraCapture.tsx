@@ -103,24 +103,24 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
 
   return (
     <Card className="w-full max-w-sm">
-      <CardHeader className="pb-2">
-        <p className="text-lg font-semibold text-amber-400">
+      <CardHeader className="pb-1 pt-4">
+        <p className="text-base font-semibold text-amber-400">
           Hi {guestName}! 🎞 {shotsRemaining} shots left
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3">
         {!pendingFile && (
           <div className="flex flex-col gap-3">
             <Button
               onClick={() => photoInputRef.current?.click()}
-              className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold h-14 text-base"
+              className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold h-12 text-base"
             >
               📷 Take Photo
             </Button>
             <Button
               onClick={() => videoInputRef.current?.click()}
               variant="outline"
-              className="w-full h-14 text-base font-semibold"
+              className="w-full h-12 text-base font-semibold"
             >
               🎥 Record Video
             </Button>

@@ -21,14 +21,14 @@ export function NameEntry({ onSubmit }: Props) {
 
   return (
     <Card className="w-full max-w-sm">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-3xl font-bold tracking-tight text-amber-400">
+      <CardHeader className="pb-2 space-y-0">
+        <CardTitle className="text-2xl font-bold tracking-tight text-amber-400">
           327 Photo Dump
         </CardTitle>
-        <CardDescription>Capture your wedding POV 🎞</CardDescription>
+        <CardDescription className="text-sm">Capture your wedding POV 🎞</CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3">
           <div className="space-y-2">
             <Label htmlFor="name">What&apos;s your name?</Label>
             <Input
