@@ -4,9 +4,12 @@
 
 **Goal:** Build a mobile-first Next.js web app that lets wedding guests capture and upload photos/videos (up to 30 each) directly to a shared Google Drive folder, organized by guest name.
 
-**Architecture:** One Next.js 14 App Router page with one API route. The API route authenticates with Google Drive via a service account and returns a resumable upload URL. The client uploads files directly to Google Drive using that URL — bypassing Vercel's 4.5MB serverless body size limit. Shot count is tracked in localStorage (30-shot disposable camera limit).
+**Architecture:** One Next.js App Router page with one API route. The API route authenticates with Google Drive via OAuth2 (refresh token) and returns a resumable upload URL. The client uploads files directly to Google Drive using that URL — bypassing Vercel's 4.5MB serverless body size limit. Shot count is tracked in localStorage (30-shot disposable camera limit).
 
-**Tech Stack:** Next.js 14, TypeScript, `googleapis` npm package, Google Drive API v3 (resumable uploads), Jest + React Testing Library, Vercel
+**Tech Stack:** Next.js (App Router), TypeScript, shadcn/ui, Tailwind CSS v4, `googleapis` npm package, Google Drive API v3 (resumable uploads), Jest + React Testing Library, Vercel
+
+> **IMPORTANT — Read the framework docs first:**  
+> This project's Next.js version may differ from your training data. Before writing any code, read `node_modules/next/dist/docs/` for the actual API. Pay attention to deprecation notices.
 
 ---
 
@@ -14,25 +17,26 @@
 
 | File | Responsibility |
 |---|---|
-| `app/page.tsx` | Orchestrates the three app states (name entry → camera → out of film) |
-| `app/layout.tsx` | Root layout with page metadata |
-| `app/globals.css` | Mobile-first dark theme styles |
-| `app/api/upload-session/route.ts` | POST: creates/finds guest Drive folder, returns resumable upload URL |
-| `components/NameEntry.tsx` | Name input form — first screen |
-| `components/CameraCapture.tsx` | Capture buttons, preview, progress bar, upload logic |
-| `components/OutOfFilm.tsx` | End-of-shots screen |
-| `lib/google-drive.ts` | Service account auth, folder lookup/creation, resumable session init |
-| `lib/use-guest-session.ts` | Custom hook: guest name + shot count via localStorage |
-| `types/index.ts` | Shared TypeScript interfaces |
-| `jest.config.js` | Jest configuration using Next.js transformer |
+| `src/app/page.tsx` | Orchestrates the three app states (name entry → camera → out of film) |
+| `src/app/layout.tsx` | Root layout — dark mode, Geist font, viewport export |
+| `src/app/globals.css` | Tailwind CSS v4 base styles |
+| `src/app/api/upload-session/route.ts` | POST: finds/creates guest Drive folder, returns resumable upload URL |
+| `src/app/api/debug/route.ts` | GET: diagnostic endpoint — tests auth, read, write, session creation |
+| `src/components/NameEntry.tsx` | Name input form — first screen (iOS-safe, no form/disabled/autoFocus) |
+| `src/components/CameraCapture.tsx` | Capture buttons, preview, progress bar, direct XHR upload to Drive |
+| `src/components/OutOfFilm.tsx` | End-of-shots screen |
+| `src/lib/google-drive.ts` | OAuth2 auth, folder lookup/creation, resumable session init |
+| `src/lib/use-guest-session.ts` | Custom hook: guest name + shot count via localStorage |
+| `src/types/index.ts` | Shared TypeScript interfaces |
+| `next.config.ts` | `allowedDevOrigins: ['*']` for LAN mobile testing |
+| `jest.config.js` | Jest configuration with explicit `@/` moduleNameMapper |
 | `jest.setup.ts` | Jest setup: imports @testing-library/jest-dom |
-| `__tests__/lib/google-drive.test.ts` | Unit tests for Drive lib |
-| `__tests__/api/upload-session.test.ts` | Unit tests for API route |
-| `__tests__/lib/use-guest-session.test.ts` | Unit tests for session hook |
-| `__tests__/components/NameEntry.test.tsx` | Component tests |
-| `__tests__/components/CameraCapture.test.tsx` | Component tests |
-| `__tests__/components/OutOfFilm.test.tsx` | Component tests |
-| `.env.example` | Example env vars (committed) |
+| `src/__tests__/lib/google-drive.test.ts` | Unit tests for Drive lib |
+| `src/__tests__/api/upload-session.test.ts` | Unit tests for API route |
+| `src/__tests__/lib/use-guest-session.test.ts` | Unit tests for session hook |
+| `src/__tests__/components/NameEntry.test.tsx` | Component tests |
+| `src/__tests__/components/CameraCapture.test.tsx` | Component tests |
+| `src/__tests__/components/OutOfFilm.test.tsx` | Component tests |
 
 ---
 
@@ -41,51 +45,75 @@
 **Files:**
 - Create: all Next.js scaffold files in project root
 
-- [ ] **Step 1: Initialize Next.js project**
-
-Run from `/Users/cyrielbasilio/Sites/327photodump`:
+- [ ] **Step 1: Initialize Next.js project with shadcn/ui**
 
 ```bash
-npx create-next-app@latest . --typescript --app --no-tailwind --no-src-dir --import-alias "@/*" --no-eslint
+npx create-next-app@latest . --typescript --app --tailwind --src-dir --import-alias "@/*" --eslint
 ```
 
-When prompted "Would you like to use Turbopack?" → No.
+When prompted for Turbopack → No.
 
-Expected: Next.js project files created in current directory.
-
-- [ ] **Step 2: Initialize git and commit scaffold**
+- [ ] **Step 2: Install shadcn/ui and initialize**
 
 ```bash
-git init
-git add .
-git commit -m "chore: scaffold Next.js 14 project"
+npx shadcn@latest init
 ```
 
----
+Accept defaults (dark theme, CSS variables). Then add the components used by the app:
 
-### Task 2: Install Dependencies and Configure Jest
+```bash
+npx shadcn@latest add button card input progress
+```
 
-**Files:**
-- Modify: `package.json`
-- Create: `jest.config.js`
-- Create: `jest.setup.ts`
-- Create: `.env.example`
-
-- [ ] **Step 1: Install production dependency**
+- [ ] **Step 3: Install googleapis**
 
 ```bash
 npm install googleapis
 ```
 
-- [ ] **Step 2: Install test dependencies**
+- [ ] **Step 4: Configure LAN access in next.config.ts**
+
+```ts
+import type { NextConfig } from 'next';
+
+const nextConfig: NextConfig = {
+  allowedDevOrigins: ['*'],
+};
+
+export default nextConfig;
+```
+
+- [ ] **Step 5: Verify TypeScript compiles**
+
+```bash
+npx tsc --noEmit
+```
+
+Expected: No errors.
+
+- [ ] **Step 6: Commit scaffold**
+
+```bash
+git add .
+git commit -m "chore: scaffold Next.js project with shadcn/ui and googleapis"
+```
+
+---
+
+### Task 2: Configure Jest
+
+**Files:**
+- Modify: `package.json`
+- Create: `jest.config.js`
+- Create: `jest.setup.ts`
+
+- [ ] **Step 1: Install test dependencies**
 
 ```bash
 npm install --save-dev jest jest-environment-jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event @types/jest
 ```
 
-- [ ] **Step 3: Add test scripts to package.json**
-
-In `package.json`, update the `"scripts"` block:
+- [ ] **Step 2: Add test scripts to package.json**
 
 ```json
 "scripts": {
@@ -97,7 +125,9 @@ In `package.json`, update the `"scripts"` block:
 }
 ```
 
-- [ ] **Step 4: Create jest.config.js**
+- [ ] **Step 3: Create jest.config.js**
+
+> **Critical:** `next/jest` does NOT automatically map tsconfig path aliases. The `moduleNameMapper` entry for `@/` is required or all `@/` imports in tests will fail.
 
 ```js
 const nextJest = require('next/jest');
@@ -105,31 +135,19 @@ const createJestConfig = nextJest({ dir: './' });
 module.exports = createJestConfig({
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testEnvironment: 'jest-environment-jsdom',
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
 });
 ```
 
-- [ ] **Step 5: Create jest.setup.ts**
+- [ ] **Step 4: Create jest.setup.ts**
 
 ```typescript
 import '@testing-library/jest-dom';
 ```
 
-- [ ] **Step 6: Create .env.example**
-
-```
-GOOGLE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"...","client_email":"...","private_key":"..."}
-GOOGLE_DRIVE_ROOT_FOLDER_ID=1abc123yourFolderIdHere
-```
-
-- [ ] **Step 7: Ensure .env.local is gitignored**
-
-In `.gitignore`, confirm this line exists (add it if not):
-
-```
-.env.local
-```
-
-- [ ] **Step 8: Run tests to verify Jest is working**
+- [ ] **Step 5: Run tests to verify Jest is working**
 
 ```bash
 npm test -- --passWithNoTests
@@ -137,11 +155,11 @@ npm test -- --passWithNoTests
 
 Expected: Jest runs and exits with 0 failures.
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add .
-git commit -m "chore: add googleapis, configure Jest"
+git add jest.config.js jest.setup.ts package.json
+git commit -m "chore: configure Jest with moduleNameMapper for @/ alias"
 ```
 
 ---
@@ -149,9 +167,9 @@ git commit -m "chore: add googleapis, configure Jest"
 ### Task 3: Define Shared TypeScript Types
 
 **Files:**
-- Create: `types/index.ts`
+- Create: `src/types/index.ts`
 
-- [ ] **Step 1: Create types/index.ts**
+- [ ] **Step 1: Create src/types/index.ts**
 
 ```typescript
 export interface UploadSessionRequest {
@@ -173,12 +191,10 @@ export interface UploadSessionResponse {
 npx tsc --noEmit
 ```
 
-Expected: No errors.
-
 - [ ] **Step 3: Commit**
 
 ```bash
-git add types/index.ts
+git add src/types/index.ts
 git commit -m "chore: add shared TypeScript types"
 ```
 
@@ -187,12 +203,18 @@ git commit -m "chore: add shared TypeScript types"
 ### Task 4: Google Drive Library (TDD)
 
 **Files:**
-- Create: `lib/google-drive.ts`
-- Create: `__tests__/lib/google-drive.test.ts`
+- Create: `src/lib/google-drive.ts`
+- Create: `src/__tests__/lib/google-drive.test.ts`
+
+> **Why OAuth2, not a service account:**  
+> Service accounts have no Google Drive storage quota. Files they create fail with `403: Service Accounts do not have storage quota`. Use OAuth2 with the owner's refresh token so files are owned by the real Google account.
+
+> **Why pass `origin` to createResumableUploadSession:**  
+> Google only enables CORS on a resumable session URI if the session-creation POST includes an `Origin` header. Without it, the browser's cross-origin PUT fires `xhr.onerror` (not `xhr.onload`) and the upload silently fails. Forward the client's `Origin` header from the route to this function.
 
 - [ ] **Step 1: Create the test file**
 
-Create `__tests__/lib/google-drive.test.ts`:
+Create `src/__tests__/lib/google-drive.test.ts`:
 
 ```typescript
 /**
@@ -207,7 +229,8 @@ const mockGetAccessToken = jest.fn();
 jest.mock('googleapis', () => ({
   google: {
     auth: {
-      JWT: jest.fn().mockImplementation(() => ({
+      OAuth2: jest.fn().mockImplementation(() => ({
+        setCredentials: jest.fn(),
         getAccessToken: mockGetAccessToken,
       })),
     },
@@ -222,10 +245,9 @@ jest.mock('googleapis', () => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.GOOGLE_SERVICE_ACCOUNT_KEY = JSON.stringify({
-    client_email: 'test@test.iam.gserviceaccount.com',
-    private_key: '-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----',
-  });
+  process.env.GOOGLE_CLIENT_ID = 'test-client-id';
+  process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+  process.env.GOOGLE_REFRESH_TOKEN = 'test-refresh-token';
   process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = 'root-folder-id';
 });
 
@@ -262,6 +284,7 @@ describe('createResumableUploadSession', () => {
   it('returns the upload URL from the Location header', async () => {
     mockGetAccessToken.mockResolvedValue({ token: 'mock-access-token' });
     global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
       headers: {
         get: (h: string) => (h === 'Location' ? 'https://upload.googleapis.com/upload-url' : null),
       },
@@ -271,19 +294,37 @@ describe('createResumableUploadSession', () => {
       'folder-id',
       'photo-2026-06-03.jpg',
       'image/jpeg',
-      1024000
+      1024000,
+      'https://327photodump.vercel.app'
     );
 
     expect(result).toBe('https://upload.googleapis.com/upload-url');
     expect(global.fetch).toHaveBeenCalledWith(
       expect.stringContaining('uploadType=resumable'),
-      expect.objectContaining({ method: 'POST' })
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Origin: 'https://327photodump.vercel.app' }),
+      })
     );
+  });
+
+  it('throws with Google error body when Drive returns non-ok response', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'mock-access-token' });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      text: async () => '{"error":{"message":"Service Accounts do not have storage quota."}}',
+    }) as jest.Mock;
+
+    await expect(
+      createResumableUploadSession('folder-id', 'photo.jpg', 'image/jpeg', 1024)
+    ).rejects.toThrow('Drive resumable session failed (403)');
   });
 
   it('throws when Drive does not return a Location header', async () => {
     mockGetAccessToken.mockResolvedValue({ token: 'mock-access-token' });
     global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
       headers: { get: () => null },
     }) as jest.Mock;
 
@@ -297,23 +338,24 @@ describe('createResumableUploadSession', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npm test -- __tests__/lib/google-drive.test.ts
+npm test -- src/__tests__/lib/google-drive.test.ts
 ```
 
 Expected: FAIL — "Cannot find module '@/lib/google-drive'"
 
-- [ ] **Step 3: Create lib/google-drive.ts**
+- [ ] **Step 3: Create src/lib/google-drive.ts**
 
 ```typescript
 import { google } from 'googleapis';
 
 function getAuth() {
-  const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!);
-  return new google.auth.JWT({
-    email: key.client_email,
-    key: key.private_key,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    'urn:ietf:wg:oauth:2.0:oob',
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
+  return oauth2Client;
 }
 
 export async function findOrCreateGuestFolder(guestName: string): Promise<string> {
@@ -347,26 +389,38 @@ export async function createResumableUploadSession(
   fileName: string,
   mimeType: string,
   fileSize: number,
+  origin?: string,
 ): Promise<string> {
   const auth = getAuth();
   const { token } = await auth.getAccessToken();
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    'X-Upload-Content-Type': mimeType,
+    'X-Upload-Content-Length': String(fileSize),
+  };
+
+  // Including Origin tells Google to enable CORS on the returned session URI,
+  // allowing the browser to PUT the file directly to Google Drive.
+  if (origin) headers['Origin'] = origin;
 
   const response = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
     {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Upload-Content-Type': mimeType,
-        'X-Upload-Content-Length': String(fileSize),
-      },
+      headers,
       body: JSON.stringify({
         name: fileName,
         parents: [folderId],
       }),
-    }
+    },
   );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Drive resumable session failed (${response.status}): ${body}`);
+  }
 
   const uploadUrl = response.headers.get('Location');
   if (!uploadUrl) throw new Error('Failed to get upload URL from Google Drive');
@@ -377,16 +431,16 @@ export async function createResumableUploadSession(
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-npm test -- __tests__/lib/google-drive.test.ts
+npm test -- src/__tests__/lib/google-drive.test.ts
 ```
 
-Expected: PASS — 4 tests passing.
+Expected: PASS — all tests passing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/google-drive.ts __tests__/lib/google-drive.test.ts
-git commit -m "feat: add Google Drive lib"
+git add src/lib/google-drive.ts src/__tests__/lib/google-drive.test.ts
+git commit -m "feat: add Google Drive lib with OAuth2 and CORS-aware upload sessions"
 ```
 
 ---
@@ -394,12 +448,12 @@ git commit -m "feat: add Google Drive lib"
 ### Task 5: Upload Session API Route (TDD)
 
 **Files:**
-- Create: `app/api/upload-session/route.ts`
-- Create: `__tests__/api/upload-session.test.ts`
+- Create: `src/app/api/upload-session/route.ts`
+- Create: `src/__tests__/api/upload-session.test.ts`
 
 - [ ] **Step 1: Create the test file**
 
-Create `__tests__/api/upload-session.test.ts`:
+Create `src/__tests__/api/upload-session.test.ts`:
 
 ```typescript
 /**
@@ -419,7 +473,7 @@ function makeRequest(body: object) {
   return new NextRequest('http://localhost/api/upload-session', {
     method: 'POST',
     body: JSON.stringify(body),
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', origin: 'https://327photodump.vercel.app' },
   });
 }
 
@@ -475,12 +529,12 @@ describe('POST /api/upload-session', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npm test -- __tests__/api/upload-session.test.ts
+npm test -- src/__tests__/api/upload-session.test.ts
 ```
 
 Expected: FAIL — "Cannot find module '@/app/api/upload-session/route'"
 
-- [ ] **Step 3: Create app/api/upload-session/route.ts**
+- [ ] **Step 3: Create src/app/api/upload-session/route.ts**
 
 ```typescript
 import { NextRequest, NextResponse } from 'next/server';
@@ -502,14 +556,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Video too large' }, { status: 400 });
     }
 
+    // Forward the client Origin so Google enables CORS on the returned session URI
+    const origin = request.headers.get('origin') ?? undefined;
     const folderId = await findOrCreateGuestFolder(guestName);
-    const uploadUrl = await createResumableUploadSession(folderId, fileName, mimeType, fileSize);
+    const uploadUrl = await createResumableUploadSession(folderId, fileName, mimeType, fileSize, origin);
 
     const response: UploadSessionResponse = { uploadUrl, folderId };
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Upload session error:', error);
-    return NextResponse.json({ error: 'Failed to create upload session' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Upload session error:', message);
+    return NextResponse.json({ error: 'Failed to create upload session', detail: message }, { status: 500 });
   }
 }
 ```
@@ -517,15 +574,15 @@ export async function POST(request: NextRequest) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-npm test -- __tests__/api/upload-session.test.ts
+npm test -- src/__tests__/api/upload-session.test.ts
 ```
 
-Expected: PASS — 4 tests passing.
+Expected: PASS — all tests passing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/api/upload-session/route.ts __tests__/api/upload-session.test.ts
+git add src/app/api/upload-session/route.ts src/__tests__/api/upload-session.test.ts
 git commit -m "feat: add upload-session API route"
 ```
 
@@ -534,12 +591,14 @@ git commit -m "feat: add upload-session API route"
 ### Task 6: useGuestSession Hook (TDD)
 
 **Files:**
-- Create: `lib/use-guest-session.ts`
-- Create: `__tests__/lib/use-guest-session.test.ts`
+- Create: `src/lib/use-guest-session.ts`
+- Create: `src/__tests__/lib/use-guest-session.test.ts`
+
+> **Safari Private Browsing:** localStorage throws in Safari Private mode. Wrap every call in try/catch with an in-memory fallback.
 
 - [ ] **Step 1: Create the test file**
 
-Create `__tests__/lib/use-guest-session.test.ts`:
+Create `src/__tests__/lib/use-guest-session.test.ts`:
 
 ```typescript
 import { renderHook, act } from '@testing-library/react';
@@ -601,12 +660,12 @@ describe('useGuestSession', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npm test -- __tests__/lib/use-guest-session.test.ts
+npm test -- src/__tests__/lib/use-guest-session.test.ts
 ```
 
 Expected: FAIL — "Cannot find module '@/lib/use-guest-session'"
 
-- [ ] **Step 3: Create lib/use-guest-session.ts**
+- [ ] **Step 3: Create src/lib/use-guest-session.ts**
 
 ```typescript
 'use client';
@@ -615,22 +674,33 @@ import { useState, useEffect } from 'react';
 
 const MAX_SHOTS = 30;
 
+// Safari Private Browsing throws on localStorage access — fall back to memory
+const store: Record<string, string> = {};
+
+function lsGet(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return store[key] ?? null; }
+}
+
+function lsSet(key: string, value: string): void {
+  try { localStorage.setItem(key, value); } catch { store[key] = value; }
+}
+
 export function useGuestSession() {
   const [guestName, setGuestNameState] = useState<string | null>(null);
   const [shotCount, setShotCount] = useState(0);
 
   useEffect(() => {
-    const storedName = localStorage.getItem('guestName');
+    const storedName = lsGet('guestName');
     if (storedName) {
-      const count = parseInt(localStorage.getItem(`shotCount_${storedName}`) ?? '0', 10);
+      const count = parseInt(lsGet(`shotCount_${storedName}`) ?? '0', 10);
       setGuestNameState(storedName);
       setShotCount(count);
     }
   }, []);
 
   const setGuestName = (name: string) => {
-    localStorage.setItem('guestName', name);
-    const count = parseInt(localStorage.getItem(`shotCount_${name}`) ?? '0', 10);
+    lsSet('guestName', name);
+    const count = parseInt(lsGet(`shotCount_${name}`) ?? '0', 10);
     setGuestNameState(name);
     setShotCount(count);
   };
@@ -638,7 +708,7 @@ export function useGuestSession() {
   const incrementShot = () => {
     if (!guestName) return;
     const newCount = shotCount + 1;
-    localStorage.setItem(`shotCount_${guestName}`, String(newCount));
+    lsSet(`shotCount_${guestName}`, String(newCount));
     setShotCount(newCount);
   };
 
@@ -656,16 +726,16 @@ export function useGuestSession() {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-npm test -- __tests__/lib/use-guest-session.test.ts
+npm test -- src/__tests__/lib/use-guest-session.test.ts
 ```
 
-Expected: PASS — 5 tests passing.
+Expected: PASS — all tests passing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/use-guest-session.ts __tests__/lib/use-guest-session.test.ts
-git commit -m "feat: add useGuestSession hook with localStorage tracking"
+git add src/lib/use-guest-session.ts src/__tests__/lib/use-guest-session.test.ts
+git commit -m "feat: add useGuestSession hook with Safari Private Browsing fallback"
 ```
 
 ---
@@ -673,12 +743,17 @@ git commit -m "feat: add useGuestSession hook with localStorage tracking"
 ### Task 7: NameEntry Component (TDD)
 
 **Files:**
-- Create: `components/NameEntry.tsx`
-- Create: `__tests__/components/NameEntry.test.tsx`
+- Create: `src/components/NameEntry.tsx`
+- Create: `src/__tests__/components/NameEntry.test.tsx`
+
+> **iOS quirks in this component:**
+> - No `<form>` element — iOS fires a page refresh on submit
+> - No `disabled` prop on the button — iOS drops taps near disabled buttons. Use Tailwind opacity classes instead
+> - No `autoFocus` — opens the virtual keyboard immediately, pushing the button off-screen
 
 - [ ] **Step 1: Create the test file**
 
-Create `__tests__/components/NameEntry.test.tsx`:
+Create `src/__tests__/components/NameEntry.test.tsx`:
 
 ```typescript
 import { render, screen } from '@testing-library/react';
@@ -688,15 +763,15 @@ import { NameEntry } from '@/components/NameEntry';
 describe('NameEntry', () => {
   it('renders name input and start button', () => {
     render(<NameEntry onSubmit={jest.fn()} />);
-    expect(screen.getByLabelText(/name/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/name/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /start/i })).toBeInTheDocument();
   });
 
-  it('calls onSubmit with trimmed name when form is submitted', async () => {
+  it('calls onSubmit with trimmed name when button is clicked', async () => {
     const onSubmit = jest.fn();
     render(<NameEntry onSubmit={onSubmit} />);
 
-    await userEvent.type(screen.getByLabelText(/name/i), '  Cyriel  ');
+    await userEvent.type(screen.getByPlaceholderText(/name/i), '  Cyriel  ');
     await userEvent.click(screen.getByRole('button', { name: /start/i }));
 
     expect(onSubmit).toHaveBeenCalledWith('Cyriel');
@@ -716,17 +791,18 @@ describe('NameEntry', () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-npm test -- __tests__/components/NameEntry.test.tsx
+npm test -- src/__tests__/components/NameEntry.test.tsx
 ```
 
-Expected: FAIL — "Cannot find module '@/components/NameEntry'"
-
-- [ ] **Step 3: Create components/NameEntry.tsx**
+- [ ] **Step 3: Create src/components/NameEntry.tsx**
 
 ```tsx
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 interface Props {
   onSubmit: (name: string) => void;
@@ -735,29 +811,42 @@ interface Props {
 export function NameEntry({ onSubmit }: Props) {
   const [name, setName] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleStart = () => {
     const trimmed = name.trim();
     if (trimmed) onSubmit(trimmed);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="name-entry">
-      <h1>327 Photo Dump</h1>
-      <p className="subtitle">Capture your wedding POV</p>
-      <label htmlFor="name">What&apos;s your name?</label>
-      <input
-        id="name"
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Your name or nickname"
-        autoFocus
-      />
-      <button type="submit" disabled={!name.trim()}>
-        Start
-      </button>
-    </form>
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle className="text-2xl text-amber-400">327 Photo Dump</CardTitle>
+        <CardDescription>Capture your wedding POV</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">What&apos;s your name?</label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name or nickname"
+            onKeyDown={(e) => { if (e.key === 'Enter') handleStart(); }}
+          />
+        </div>
+        {/* No disabled prop — iOS drops taps near disabled buttons.
+            Simulate disabled state with opacity classes instead. */}
+        <Button
+          type="button"
+          onClick={handleStart}
+          className={`w-full font-semibold ${
+            name.trim()
+              ? 'bg-amber-400 text-black hover:bg-amber-300'
+              : 'bg-amber-400/40 text-black/40 cursor-not-allowed'
+          }`}
+        >
+          Start
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 ```
@@ -765,16 +854,14 @@ export function NameEntry({ onSubmit }: Props) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
-npm test -- __tests__/components/NameEntry.test.tsx
+npm test -- src/__tests__/components/NameEntry.test.tsx
 ```
-
-Expected: PASS — 3 tests passing.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/NameEntry.tsx __tests__/components/NameEntry.test.tsx
-git commit -m "feat: add NameEntry component"
+git add src/components/NameEntry.tsx src/__tests__/components/NameEntry.test.tsx
+git commit -m "feat: add NameEntry component with iOS-safe button handling"
 ```
 
 ---
@@ -782,12 +869,10 @@ git commit -m "feat: add NameEntry component"
 ### Task 8: OutOfFilm Component (TDD)
 
 **Files:**
-- Create: `components/OutOfFilm.tsx`
-- Create: `__tests__/components/OutOfFilm.test.tsx`
+- Create: `src/components/OutOfFilm.tsx`
+- Create: `src/__tests__/components/OutOfFilm.test.tsx`
 
 - [ ] **Step 1: Create the test file**
-
-Create `__tests__/components/OutOfFilm.test.tsx`:
 
 ```typescript
 import { render, screen } from '@testing-library/react';
@@ -804,38 +889,30 @@ describe('OutOfFilm', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-```bash
-npm test -- __tests__/components/OutOfFilm.test.tsx
-```
-
-Expected: FAIL — "Cannot find module '@/components/OutOfFilm'"
-
-- [ ] **Step 3: Create components/OutOfFilm.tsx**
+- [ ] **Step 3: Create src/components/OutOfFilm.tsx**
 
 ```tsx
+import { Card, CardContent } from '@/components/ui/card';
+
 export function OutOfFilm() {
   return (
-    <div className="out-of-film">
-      <p className="film-emoji">🎞</p>
-      <h1>You&apos;re out of film!</h1>
-      <p>Thanks for capturing your POV 🎞</p>
-    </div>
+    <Card className="w-full max-w-sm text-center">
+      <CardContent className="pt-10 pb-10 space-y-4">
+        <p className="text-6xl">🎞</p>
+        <h1 className="text-2xl font-bold">You&apos;re out of film!</h1>
+        <p className="text-muted-foreground">Thanks for capturing your POV 🎞</p>
+      </CardContent>
+    </Card>
   );
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-```bash
-npm test -- __tests__/components/OutOfFilm.test.tsx
-```
-
-Expected: PASS — 1 test passing.
-
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/OutOfFilm.tsx __tests__/components/OutOfFilm.test.tsx
+git add src/components/OutOfFilm.tsx src/__tests__/components/OutOfFilm.test.tsx
 git commit -m "feat: add OutOfFilm component"
 ```
 
@@ -844,17 +921,24 @@ git commit -m "feat: add OutOfFilm component"
 ### Task 9: CameraCapture Component (TDD)
 
 **Files:**
-- Create: `components/CameraCapture.tsx`
-- Create: `__tests__/components/CameraCapture.test.tsx`
+- Create: `src/components/CameraCapture.tsx`
+- Create: `src/__tests__/components/CameraCapture.test.tsx`
+
+> **jsdom note:** `URL.createObjectURL` is not available in jsdom. Add `global.URL.createObjectURL = jest.fn(() => 'blob:mock-url')` in the test file.
+>
+> **XHR error handling:** `xhr.onerror` fires for network/CORS errors (status 0). `xhr.onload` fires for real HTTP responses including 4xx. Capture `xhr.responseText` in `onload` to show Google's error message.
 
 - [ ] **Step 1: Create the test file**
 
-Create `__tests__/components/CameraCapture.test.tsx`:
+Create `src/__tests__/components/CameraCapture.test.tsx`:
 
 ```typescript
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CameraCapture } from '@/components/CameraCapture';
+
+// jsdom does not implement URL.createObjectURL
+global.URL.createObjectURL = jest.fn(() => 'blob:mock-url');
 
 describe('CameraCapture', () => {
   it('renders greeting with shots remaining', () => {
@@ -898,8 +982,7 @@ describe('CameraCapture', () => {
 
     global.fetch = jest.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({ uploadUrl: 'https://upload.googleapis.com/mock', folderId: 'f1' }),
+      json: () => Promise.resolve({ uploadUrl: 'https://upload.googleapis.com/mock', folderId: 'f1' }),
     }) as jest.Mock;
 
     const mockXhr = {
@@ -912,10 +995,9 @@ describe('CameraCapture', () => {
       onload: null as unknown as (e: ProgressEvent) => void,
       onerror: null as unknown as (e: ProgressEvent) => void,
       status: 200,
+      responseText: '',
     };
-    jest
-      .spyOn(window, 'XMLHttpRequest')
-      .mockImplementation(() => mockXhr as unknown as XMLHttpRequest);
+    jest.spyOn(window, 'XMLHttpRequest').mockImplementation(() => mockXhr as unknown as XMLHttpRequest);
 
     render(<CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={onUploadSuccess} />);
 
@@ -931,18 +1013,15 @@ describe('CameraCapture', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-```bash
-npm test -- __tests__/components/CameraCapture.test.tsx
-```
-
-Expected: FAIL — "Cannot find module '@/components/CameraCapture'"
-
-- [ ] **Step 3: Create components/CameraCapture.tsx**
+- [ ] **Step 3: Create src/components/CameraCapture.tsx**
 
 ```tsx
 'use client';
 
 import { useState, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 
@@ -994,7 +1073,8 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
         body: JSON.stringify({ guestName, fileName, mimeType: file.type, fileSize: file.size }),
       })
         .then((res) => {
-          if (!res.ok) return res.json().then((b) => Promise.reject(new Error(b.error ?? 'Failed to get upload URL')));
+          if (!res.ok)
+            return res.json().then((b) => Promise.reject(new Error(b.error ?? 'Failed to get upload URL')));
           return res.json();
         })
         .then(({ uploadUrl }: { uploadUrl: string }) => {
@@ -1006,9 +1086,13 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
           };
           xhr.onload = () => {
             if (xhr.status < 300) resolve();
-            else reject(new Error(`Upload failed (${xhr.status})`));
+            else {
+              const detail = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
+              reject(new Error(`Upload failed (${xhr.status})${detail}`));
+            }
           };
-          xhr.onerror = () => reject(new Error('Upload failed — tap to retry'));
+          // onerror fires for network errors and CORS failures (status 0)
+          xhr.onerror = () => reject(new Error('Upload failed — network error'));
           xhr.send(file);
         })
         .catch((err: Error) => reject(err));
@@ -1040,83 +1124,81 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
   };
 
   return (
-    <div className="camera-capture">
-      <p className="shot-counter">
-        Hi {guestName}! 🎞 {shotsRemaining} shots left
-      </p>
-
-      {!pendingFile && (
-        <div className="capture-buttons">
-          <button onClick={() => photoInputRef.current?.click()}>Take Photo</button>
-          <button onClick={() => videoInputRef.current?.click()}>Record Video</button>
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/*"
-            capture="environment"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-        </div>
-      )}
-
-      {previewUrl && pendingFile && (
-        <div className="preview">
-          {pendingFile.type.startsWith('image/') ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="Preview" />
-          ) : (
-            <video src={previewUrl} controls playsInline />
-          )}
-          <div className="preview-actions">
-            <button onClick={handleUpload} disabled={uploadStatus === 'uploading'}>
-              {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
-            </button>
-            <button onClick={handleRetake}>Retake</button>
+    <Card className="w-full max-w-sm">
+      <CardHeader className="pb-1 pt-4">
+        <p className="text-base font-semibold text-amber-400">
+          Hi {guestName}! 🎞 {shotsRemaining} shots left
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!pendingFile && (
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={() => photoInputRef.current?.click()}
+              className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold h-12 text-base"
+            >
+              📷 Take Photo
+            </Button>
+            <Button
+              onClick={() => videoInputRef.current?.click()}
+              variant="outline"
+              className="w-full h-auto py-2 flex flex-col font-semibold"
+            >
+              <span className="text-base">🎥 Record Video</span>
+              <span className="text-xs font-normal opacity-60">Keep it under 60 seconds</span>
+            </Button>
+            <input ref={photoInputRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+            <input ref={videoInputRef} type="file" accept="video/*" capture="environment" onChange={handleFileChange} className="hidden" />
           </div>
-        </div>
-      )}
+        )}
 
-      {uploadStatus === 'uploading' && <progress value={progress} max={100} />}
+        {previewUrl && pendingFile && (
+          <div className="space-y-3">
+            {pendingFile.type.startsWith('image/') ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previewUrl} alt="Preview" className="w-full rounded-lg max-h-[60vh] object-cover" />
+            ) : (
+              <video src={previewUrl} controls playsInline className="w-full rounded-lg max-h-[60vh]" />
+            )}
+            <div className="flex gap-3">
+              <Button
+                onClick={handleUpload}
+                disabled={uploadStatus === 'uploading'}
+                className="flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold"
+              >
+                {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
+              </Button>
+              <Button onClick={handleRetake} variant="outline">Retake</Button>
+            </div>
+          </div>
+        )}
 
-      {error && <p className="error">{error}</p>}
-    </div>
+        {uploadStatus === 'uploading' && <Progress value={progress} className="h-2" />}
+        {error && <p className="text-destructive text-sm">{error}</p>}
+      </CardContent>
+    </Card>
   );
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-```bash
-npm test -- __tests__/components/CameraCapture.test.tsx
-```
-
-Expected: PASS — 5 tests passing.
-
 - [ ] **Step 5: Commit**
 
 ```bash
-git add components/CameraCapture.tsx __tests__/components/CameraCapture.test.tsx
-git commit -m "feat: add CameraCapture component"
+git add src/components/CameraCapture.tsx src/__tests__/components/CameraCapture.test.tsx
+git commit -m "feat: add CameraCapture component with direct Drive upload"
 ```
 
 ---
 
-### Task 10: Wire Up Main Page
+### Task 10: Wire Up Main Page + Layout
 
 **Files:**
-- Modify: `app/page.tsx`
-- Modify: `app/layout.tsx`
+- Modify: `src/app/page.tsx`
+- Modify: `src/app/layout.tsx`
 
-- [ ] **Step 1: Replace app/page.tsx**
+- [ ] **Step 1: Replace src/app/page.tsx**
 
 ```tsx
 'use client';
@@ -1127,8 +1209,7 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { OutOfFilm } from '@/components/OutOfFilm';
 
 export default function Home() {
-  const { guestName, shotsRemaining, isOutOfFilm, setGuestName, incrementShot } =
-    useGuestSession();
+  const { guestName, shotsRemaining, isOutOfFilm, setGuestName, incrementShot } = useGuestSession();
 
   if (!guestName) return <NameEntry onSubmit={setGuestName} />;
   if (isOutOfFilm) return <OutOfFilm />;
@@ -1142,21 +1223,34 @@ export default function Home() {
 }
 ```
 
-- [ ] **Step 2: Replace app/layout.tsx**
+- [ ] **Step 2: Replace src/app/layout.tsx**
 
 ```tsx
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { Geist } from 'next/font/google';
+import { cn } from '@/lib/utils';
+
+const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
 
 export const metadata: Metadata = {
   title: '327 Photo Dump',
   description: 'Capture your wedding POV',
 };
 
+// Export viewport separately — do not put width/initialScale in metadata.
+// Without this, mobile browsers render at desktop scale and touch targets misalign.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className={cn('dark font-sans', geist.variable)}>
+      <body className="bg-background text-foreground min-h-screen flex justify-center items-start pt-6 px-4">
+        {children}
+      </body>
     </html>
   );
 }
@@ -1173,299 +1267,145 @@ Expected: All tests pass.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add app/page.tsx app/layout.tsx
-git commit -m "feat: wire up main page with three app states"
+git add src/app/page.tsx src/app/layout.tsx
+git commit -m "feat: wire up main page with viewport fix for mobile"
 ```
 
 ---
 
-### Task 11: Mobile-First CSS
+### Task 11: Debug Route
 
 **Files:**
-- Modify: `app/globals.css`
+- Create: `src/app/api/debug/route.ts`
 
-- [ ] **Step 1: Replace app/globals.css**
+> Remove this route before sharing the app publicly — it exposes auth diagnostics.
 
-```css
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+- [ ] **Step 1: Create src/app/api/debug/route.ts**
+
+```typescript
+import { NextResponse } from 'next/server';
+import { google } from 'googleapis';
+
+function makeAuth() {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    'urn:ietf:wg:oauth:2.0:oob',
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
+  return oauth2Client;
 }
 
-:root {
-  --bg: #111;
-  --fg: #f5f5f5;
-  --accent: #e8c97e;
-  --muted: #888;
-  --radius: 12px;
-  --gap: 16px;
-}
+export async function GET() {
+  const results: Record<string, string> = {};
 
-html, body {
-  height: 100%;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 16px;
-  -webkit-font-smoothing: antialiased;
-}
+  results.hasClientId = !!process.env.GOOGLE_CLIENT_ID ? 'yes' : 'MISSING';
+  results.hasClientSecret = !!process.env.GOOGLE_CLIENT_SECRET ? 'yes' : 'MISSING';
+  results.hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN ? 'yes' : 'MISSING';
+  results.hasFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ? 'yes' : 'MISSING';
 
-body {
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
-  min-height: 100vh;
-  padding: 40px var(--gap) var(--gap);
-}
+  try {
+    const { token } = await makeAuth().getAccessToken();
+    results.auth = token ? 'ok' : 'FAILED — no token returned';
+  } catch (e) {
+    results.auth = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
+    return NextResponse.json(results);
+  }
 
-/* ── Name Entry ── */
-.name-entry {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap);
-}
+  try {
+    const drive = google.drive({ version: 'v3', auth: makeAuth() });
+    const res = await drive.files.get({ fileId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID! });
+    results.folderRead = `ok — found: ${res.data.name}`;
+  } catch (e) {
+    results.folderRead = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
+  }
 
-.name-entry h1 {
-  font-size: 2rem;
-  font-weight: 700;
-  color: var(--accent);
-  letter-spacing: -0.5px;
-}
+  try {
+    const drive = google.drive({ version: 'v3', auth: makeAuth() });
+    const created = await drive.files.create({
+      requestBody: { name: '__debug_write_test__', mimeType: 'application/vnd.google-apps.folder', parents: [process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!] },
+      fields: 'id',
+    });
+    await drive.files.delete({ fileId: created.data.id! });
+    results.writeAccess = 'ok — created and deleted a test folder';
+  } catch (e) {
+    results.writeAccess = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
+  }
 
-.name-entry .subtitle {
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
-.name-entry label {
-  font-size: 1.1rem;
-  font-weight: 500;
-  margin-top: 8px;
-}
-
-.name-entry input {
-  width: 100%;
-  padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 1.5px solid #333;
-  background: #1a1a1a;
-  color: var(--fg);
-  font-size: 1.1rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.name-entry input:focus {
-  border-color: var(--accent);
-}
-
-/* ── Shared Buttons ── */
-button {
-  padding: 14px 20px;
-  border-radius: var(--radius);
-  border: none;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: opacity 0.2s;
-  background: var(--accent);
-  color: #111;
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-button:active:not(:disabled) {
-  opacity: 0.8;
-}
-
-/* ── Camera Capture ── */
-.camera-capture {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap);
-}
-
-.shot-counter {
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--accent);
-}
-
-.capture-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.preview img,
-.preview video {
-  width: 100%;
-  border-radius: var(--radius);
-  max-height: 60vh;
-  object-fit: cover;
-}
-
-.preview-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.preview-actions button:last-child {
-  background: #2a2a2a;
-  color: var(--fg);
-  flex: 0 0 auto;
-}
-
-progress {
-  width: 100%;
-  height: 6px;
-  border-radius: 3px;
-  appearance: none;
-  background: #2a2a2a;
-}
-
-progress::-webkit-progress-bar {
-  background: #2a2a2a;
-  border-radius: 3px;
-}
-
-progress::-webkit-progress-value {
-  background: var(--accent);
-  border-radius: 3px;
-}
-
-.error {
-  color: #ff6b6b;
-  font-size: 0.9rem;
-}
-
-/* ── Out of Film ── */
-.out-of-film {
-  width: 100%;
-  max-width: 420px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  text-align: center;
-  margin-top: 20vh;
-}
-
-.film-emoji {
-  font-size: 4rem;
-}
-
-.out-of-film h1 {
-  font-size: 1.8rem;
-  font-weight: 700;
-}
-
-.out-of-film p:last-child {
-  color: var(--muted);
+  return NextResponse.json(results);
 }
 ```
 
-- [ ] **Step 2: Start dev server and verify on mobile**
+- [ ] **Step 2: Commit**
 
 ```bash
-npm run dev
-```
-
-Open `http://localhost:3000` in a mobile browser (or use browser DevTools device emulation). Verify:
-- Dark background, gold accent color (`#e8c97e`)
-- Name entry form is readable and well-spaced
-- Buttons are large enough to tap with a thumb
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add app/globals.css
-git commit -m "feat: add mobile-first dark theme CSS"
+git add src/app/api/debug/route.ts
+git commit -m "feat: add debug route for auth diagnostics"
 ```
 
 ---
 
-### Task 12: Google Cloud Setup and Vercel Deploy
+### Task 12: Google Cloud + Vercel Deploy
 
 **Files:** no code changes — configuration only
 
-- [ ] **Step 1: Create a Google Cloud service account**
+- [ ] **Step 1: Set up Google Cloud OAuth2**
 
 1. Go to [console.cloud.google.com](https://console.cloud.google.com)
-2. Create a new project (or use an existing one)
-3. Enable the **Google Drive API**: APIs & Services → Enable APIs → search "Google Drive API" → Enable
-4. Go to **IAM & Admin → Service Accounts → Create Service Account**
-5. Name it `wedding-photo-dump`, click Done
-6. Click the new service account → **Keys** tab → Add Key → Create new key → **JSON**
-7. Download the JSON key file — keep it safe, don't commit it
+2. Enable the **Google Drive API**: APIs & Services → Enable APIs → "Google Drive API"
+3. Create an OAuth2 Client ID: Credentials → Create Credentials → OAuth client ID → Web application
+4. Add `https://developers.google.com/oauthplayground` as an authorized redirect URI
+5. Note the **Client ID** and **Client Secret**
 
-- [ ] **Step 2: Share your Drive folder with the service account**
+- [ ] **Step 2: Add yourself as a test user**
 
-1. Create a folder in Google Drive named "327 Photo Dump" (or any name)
-2. Right-click the folder → Share → paste the service account email (e.g. `wedding-photo-dump@your-project.iam.gserviceaccount.com`) → set permission to **Editor** → Share
-3. Copy the folder ID from the URL bar: `https://drive.google.com/drive/folders/THIS_IS_THE_FOLDER_ID`
+APIs & Services → OAuth consent screen → Test users → Add your own Gmail address.  
+(Required because the app is unverified. Without this you get `403: access_denied` in the OAuth flow.)
 
-- [ ] **Step 3: Set up local environment**
+- [ ] **Step 3: Get a refresh token via OAuth Playground**
 
-Create `.env.local` in the project root (not committed):
+1. Go to [https://developers.google.com/oauthplayground](https://developers.google.com/oauthplayground)
+2. Gear icon → check "Use your own OAuth credentials" → paste Client ID + Client Secret
+3. Select scope: `https://www.googleapis.com/auth/drive`
+4. Click **Authorize APIs** → sign in with the Google account that owns the Drive folder
+5. Click **Exchange authorization code for tokens**
+6. Copy the **Refresh token**
 
-```
-GOOGLE_SERVICE_ACCOUNT_KEY=<paste the entire JSON key file contents, minified to a single line>
-GOOGLE_DRIVE_ROOT_FOLDER_ID=<the folder ID from step 2>
-```
+- [ ] **Step 4: Get the root folder ID**
 
-To minify the JSON to one line (run in terminal):
+In Google Drive, open the folder that will hold all guest photos. Copy the folder ID from the URL:  
+`https://drive.google.com/drive/folders/THIS_IS_THE_FOLDER_ID`
 
-```bash
-cat /path/to/your-key-file.json | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin)))"
-```
-
-- [ ] **Step 4: Test locally end-to-end**
+- [ ] **Step 5: Set Vercel environment variables**
 
 ```bash
-npm run dev
+vercel env add GOOGLE_CLIENT_ID
+vercel env add GOOGLE_CLIENT_SECRET
+vercel env add GOOGLE_REFRESH_TOKEN
+vercel env add GOOGLE_DRIVE_ROOT_FOLDER_ID
 ```
 
-Open `http://localhost:3000`, enter a name, take a photo, upload. Verify the file appears in Google Drive under the guest's subfolder.
-
-- [ ] **Step 5: Run full test suite**
-
-```bash
-npm test
-```
-
-Expected: All tests pass.
+Select **Production** for each.
 
 - [ ] **Step 6: Deploy to Vercel**
 
 ```bash
-npx vercel
+vercel --prod
 ```
 
-When prompted for environment variables, add:
-- `GOOGLE_SERVICE_ACCOUNT_KEY` — the minified JSON string
-- `GOOGLE_DRIVE_ROOT_FOLDER_ID` — the folder ID
+- [ ] **Step 7: Verify with the debug route**
 
-Or set them after deploy in the Vercel dashboard: **Project Settings → Environment Variables**, then redeploy.
+Open `https://your-app.vercel.app/api/debug`. All values should show `ok`.
 
-- [ ] **Step 7: Verify production deploy**
+- [ ] **Step 8: Test end-to-end on a real phone**
 
-Open the Vercel URL on your phone, upload a test photo, confirm it appears in Drive.
+Open the app URL, enter a name, capture a photo, upload. Confirm the file appears in the root Drive folder under the guest's subfolder.
 
-- [ ] **Step 8: Generate QR code for the wedding**
+- [ ] **Step 9: Generate QR code**
 
-Take the Vercel URL (e.g. `https://327photodump.vercel.app`) and generate a QR code using any QR code generator. Print and place at tables.
+Take the Vercel URL (e.g. `https://327photodump.vercel.app`) and generate a QR code for printing at the venue.
 
-- [ ] **Step 9: Final commit**
+- [ ] **Step 10: Final commit**
 
 ```bash
 git add .
@@ -1474,19 +1414,38 @@ git commit -m "chore: finalize deployment"
 
 ---
 
+## Lessons Learned
+
+These issues were hit during development and are already handled in the code above:
+
+| Issue | Root Cause | Fix |
+|---|---|---|
+| 403 on file upload | Service accounts have no Drive storage quota | Switch to OAuth2 with owner's refresh token |
+| "Network error" on upload | CORS not enabled on resumable session URI | Forward client `Origin` header when creating the session |
+| `access_denied` in OAuth flow | App unverified, user not in test list | Add your own email as a test user in OAuth consent screen |
+| Start button not clickable on iOS | iOS drops taps near `disabled` buttons | Remove `disabled`; use Tailwind opacity classes |
+| Button click refreshes page on iOS | `<form>` submit behavior | Remove `<form>`; use `type="button"` + `onClick` |
+| Keyboard pushes button off-screen | `autoFocus` on the input | Remove `autoFocus` |
+| LAN access breaks interactivity | Next.js 15+ blocks cross-origin dev requests | `allowedDevOrigins: ['*']` in next.config.ts |
+| Touch coordinates misalign on mobile | Missing viewport meta tag | Export `viewport` from layout.tsx |
+| localStorage crash in Safari Private | Safari throws on localStorage access | try/catch with in-memory fallback |
+| `@/` imports fail in Jest | `next/jest` doesn't auto-map tsconfig paths | Explicit `moduleNameMapper` in jest.config.js |
+
+---
+
 ## Summary
 
 | Task | Deliverable |
 |---|---|
-| 1 | Next.js project scaffolded |
-| 2 | Dependencies + Jest configured |
+| 1 | Next.js project scaffolded with shadcn/ui |
+| 2 | Jest configured with `@/` alias mapping |
 | 3 | Shared TypeScript types |
-| 4 | `lib/google-drive.ts` + tests |
-| 5 | `app/api/upload-session/route.ts` + tests |
-| 6 | `lib/use-guest-session.ts` + tests |
-| 7 | `components/NameEntry.tsx` + tests |
-| 8 | `components/OutOfFilm.tsx` + tests |
-| 9 | `components/CameraCapture.tsx` + tests |
-| 10 | `app/page.tsx` wired up |
-| 11 | Mobile-first dark theme CSS |
-| 12 | Google Cloud + Vercel deploy |
+| 4 | `src/lib/google-drive.ts` + tests (OAuth2, CORS-aware) |
+| 5 | `src/app/api/upload-session/route.ts` + tests |
+| 6 | `src/lib/use-guest-session.ts` + tests (Safari-safe) |
+| 7 | `src/components/NameEntry.tsx` + tests (iOS-safe) |
+| 8 | `src/components/OutOfFilm.tsx` + tests |
+| 9 | `src/components/CameraCapture.tsx` + tests |
+| 10 | `src/app/page.tsx` + layout with viewport fix |
+| 11 | Debug route for auth diagnostics |
+| 12 | Google Cloud OAuth2 setup + Vercel deploy |
