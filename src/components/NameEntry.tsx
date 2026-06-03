@@ -37,10 +37,13 @@ export function NameEntry({ onSubmit }: Props) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Your name or nickname"
-              autoFocus
             />
           </div>
-          <Button type="submit" disabled={!name.trim()} className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold">
+          <Button
+            type="submit"
+            className="w-full bg-amber-400 text-black hover:bg-amber-300 active:bg-amber-500 font-semibold"
+            style={{ opacity: name.trim() ? 1 : 0.4 }}
+          >
             Start
           </Button>
         </form>
