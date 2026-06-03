@@ -13,8 +13,7 @@ interface Props {
 export function NameEntry({ onSubmit }: Props) {
   const [name, setName] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleStart = () => {
     const trimmed = name.trim();
     if (trimmed) onSubmit(trimmed);
   };
@@ -27,26 +26,29 @@ export function NameEntry({ onSubmit }: Props) {
         </CardTitle>
         <CardDescription className="text-sm">Capture your wedding POV 🎞</CardDescription>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="space-y-2">
-            <Label htmlFor="name">What&apos;s your name?</Label>
-            <Input
-              id="name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name or nickname"
-            />
-          </div>
-          <Button
-            type="submit"
-            className="w-full bg-amber-400 text-black hover:bg-amber-300 active:bg-amber-500 font-semibold"
-            style={{ opacity: name.trim() ? 1 : 0.4 }}
-          >
-            Start
-          </Button>
-        </form>
+      <CardContent className="space-y-3">
+        <div className="space-y-2">
+          <Label htmlFor="name">What&apos;s your name?</Label>
+          <Input
+            id="name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleStart()}
+            placeholder="Your name or nickname"
+          />
+        </div>
+        <Button
+          type="button"
+          onClick={handleStart}
+          className={`w-full font-semibold transition-opacity ${
+            name.trim()
+              ? 'bg-amber-400 text-black hover:bg-amber-300 active:bg-amber-500'
+              : 'bg-amber-400 text-black opacity-40 cursor-not-allowed'
+          }`}
+        >
+          Start
+        </Button>
       </CardContent>
     </Card>
   );
