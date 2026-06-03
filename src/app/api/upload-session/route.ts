@@ -17,8 +17,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Video too large' }, { status: 400 });
     }
 
+    const origin = request.headers.get('origin') ?? undefined;
     const folderId = await findOrCreateGuestFolder(guestName);
-    const uploadUrl = await createResumableUploadSession(folderId, fileName, mimeType, fileSize);
+    const uploadUrl = await createResumableUploadSession(folderId, fileName, mimeType, fileSize, origin);
 
     const response: UploadSessionResponse = { uploadUrl, folderId };
     return NextResponse.json(response);
