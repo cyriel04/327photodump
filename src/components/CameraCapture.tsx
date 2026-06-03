@@ -120,13 +120,16 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
             >
               📷 Take Photo
             </Button>
-            <Button
-              onClick={() => videoInputRef.current?.click()}
-              variant="outline"
-              className="w-full h-12 text-base font-semibold"
-            >
-              🎥 Record Video
-            </Button>
+            <div className="flex flex-col gap-1">
+              <Button
+                onClick={() => videoInputRef.current?.click()}
+                variant="outline"
+                className="w-full h-12 text-base font-semibold"
+              >
+                🎥 Record Video
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">Keep it under 60 seconds</p>
+            </div>
             <input
               ref={photoInputRef}
               type="file"
