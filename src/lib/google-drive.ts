@@ -1,14 +1,13 @@
 import { google } from 'googleapis';
 
 function getAuth() {
-  const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!);
-  // Vercel sometimes escapes \n in env vars — restore actual newlines in the private key
-  const privateKey = key.private_key.replace(/\\n/g, '\n');
-  return new google.auth.JWT({
-    email: key.client_email,
-    key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    'urn:ietf:wg:oauth:2.0:oob',
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
+  return oauth2Client;
 }
 
 export async function findOrCreateGuestFolder(guestName: string): Promise<string> {
@@ -67,7 +66,7 @@ export async function createResumableUploadSession(
         name: fileName,
         parents: [folderId],
       }),
-    }
+    },
   );
 
   if (!response.ok) {

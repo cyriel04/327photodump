@@ -2,35 +2,31 @@ import { NextResponse } from 'next/server';
 import { google } from 'googleapis';
 
 function makeAuth() {
-  const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!);
-  const privateKey = key.private_key.replace(/\\n/g, '\n');
-  return new google.auth.JWT({
-    email: key.client_email,
-    key: privateKey,
-    scopes: ['https://www.googleapis.com/auth/drive'],
-  });
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    'urn:ietf:wg:oauth:2.0:oob',
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
+  return oauth2Client;
 }
 
 export async function GET() {
   const results: Record<string, string> = {};
 
   // 1. Check env vars exist
-  results.hasServiceAccountKey = !!process.env.GOOGLE_SERVICE_ACCOUNT_KEY ? 'yes' : 'MISSING';
+  results.hasClientId = !!process.env.GOOGLE_CLIENT_ID ? 'yes' : 'MISSING';
+  results.hasClientSecret = !!process.env.GOOGLE_CLIENT_SECRET ? 'yes' : 'MISSING';
+  results.hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN ? 'yes' : 'MISSING';
   results.hasFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ? 'yes' : 'MISSING';
   results.folderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? 'not set';
 
-  // 2. Try parsing the key
-  try {
-    const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!);
-    results.keyParsed = 'ok';
-    results.clientEmail = key.client_email ?? 'missing field';
-    results.hasPrivateKey = key.private_key ? 'yes' : 'MISSING';
-  } catch (e) {
-    results.keyParsed = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
+    results.status = 'Missing OAuth2 credentials — add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN';
     return NextResponse.json(results);
   }
 
-  // 3. Try authenticating
+  // 2. Try getting an access token
   try {
     const auth = makeAuth();
     const { token } = await auth.getAccessToken();
@@ -40,7 +36,7 @@ export async function GET() {
     return NextResponse.json(results);
   }
 
-  // 4. Try reading the root folder
+  // 3. Try reading the root folder
   try {
     const drive = google.drive({ version: 'v3', auth: makeAuth() });
     const res = await drive.files.get({ fileId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID! });
@@ -49,7 +45,7 @@ export async function GET() {
     results.folderRead = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 5. Test write access — create a temp subfolder then delete it
+  // 4. Test write access — create a temp subfolder then delete it
   try {
     const drive = google.drive({ version: 'v3', auth: makeAuth() });
     const created = await drive.files.create({
@@ -67,7 +63,7 @@ export async function GET() {
     results.writeAccess = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 6. Test resumable upload session creation
+  // 5. Test resumable upload session creation
   try {
     const auth = makeAuth();
     const { token } = await auth.getAccessToken();
@@ -85,10 +81,10 @@ export async function GET() {
           name: '__debug_upload_session_test__.jpg',
           parents: [process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!],
         }),
-      }
+      },
     );
     if (res.ok) {
-      results.resumableSession = `ok — got upload URL`;
+      results.resumableSession = 'ok — got upload URL';
     } else {
       const body = await res.text();
       results.resumableSession = `FAILED (${res.status}): ${body}`;
