@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 
@@ -99,54 +102,78 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
   };
 
   return (
-    <div className="camera-capture">
-      <p className="shot-counter">
-        Hi {guestName}! 🎞 {shotsRemaining} shots left
-      </p>
-
-      {!pendingFile && (
-        <div className="capture-buttons">
-          <button onClick={() => photoInputRef.current?.click()}>Take Photo</button>
-          <button onClick={() => videoInputRef.current?.click()}>Record Video</button>
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/*"
-            capture="environment"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-        </div>
-      )}
-
-      {previewUrl && pendingFile && (
-        <div className="preview">
-          {pendingFile.type.startsWith('image/') ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={previewUrl} alt="Preview" />
-          ) : (
-            <video src={previewUrl} controls playsInline />
-          )}
-          <div className="preview-actions">
-            <button onClick={handleUpload} disabled={uploadStatus === 'uploading'}>
-              {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
-            </button>
-            <button onClick={handleRetake}>Retake</button>
+    <Card className="w-full max-w-sm">
+      <CardHeader className="pb-2">
+        <p className="text-lg font-semibold text-amber-400">
+          Hi {guestName}! 🎞 {shotsRemaining} shots left
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!pendingFile && (
+          <div className="flex flex-col gap-3">
+            <Button
+              onClick={() => photoInputRef.current?.click()}
+              className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold h-14 text-base"
+            >
+              📷 Take Photo
+            </Button>
+            <Button
+              onClick={() => videoInputRef.current?.click()}
+              variant="outline"
+              className="w-full h-14 text-base font-semibold"
+            >
+              🎥 Record Video
+            </Button>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
           </div>
-        </div>
-      )}
+        )}
 
-      {uploadStatus === 'uploading' && <progress value={progress} max={100} />}
+        {previewUrl && pendingFile && (
+          <div className="space-y-3">
+            {pendingFile.type.startsWith('image/') ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previewUrl} alt="Preview" className="w-full rounded-lg max-h-[60vh] object-cover" />
+            ) : (
+              <video src={previewUrl} controls playsInline className="w-full rounded-lg max-h-[60vh]" />
+            )}
+            <div className="flex gap-3">
+              <Button
+                onClick={handleUpload}
+                disabled={uploadStatus === 'uploading'}
+                className="flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold"
+              >
+                {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
+              </Button>
+              <Button onClick={handleRetake} variant="outline">
+                Retake
+              </Button>
+            </div>
+          </div>
+        )}
 
-      {error && <p className="error">{error}</p>}
-    </div>
+        {uploadStatus === 'uploading' && (
+          <Progress value={progress} className="h-2" />
+        )}
+
+        {error && (
+          <p className="text-destructive text-sm">{error}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

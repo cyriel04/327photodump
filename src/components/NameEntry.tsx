@@ -1,6 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 interface Props {
   onSubmit: (name: string) => void;
@@ -16,21 +20,31 @@ export function NameEntry({ onSubmit }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="name-entry">
-      <h1>327 Photo Dump</h1>
-      <p className="subtitle">Capture your wedding POV</p>
-      <label htmlFor="name">What&apos;s your name?</label>
-      <input
-        id="name"
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Your name or nickname"
-        autoFocus
-      />
-      <button type="submit" disabled={!name.trim()}>
-        Start
-      </button>
-    </form>
+    <Card className="w-full max-w-sm">
+      <CardHeader className="space-y-1">
+        <CardTitle className="text-3xl font-bold tracking-tight text-amber-400">
+          327 Photo Dump
+        </CardTitle>
+        <CardDescription>Capture your wedding POV 🎞</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">What&apos;s your name?</Label>
+            <Input
+              id="name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your name or nickname"
+              autoFocus
+            />
+          </div>
+          <Button type="submit" disabled={!name.trim()} className="w-full bg-amber-400 text-black hover:bg-amber-300 font-semibold">
+            Start
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
