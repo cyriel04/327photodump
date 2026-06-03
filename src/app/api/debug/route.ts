@@ -18,8 +18,12 @@ export async function GET() {
   results.hasClientId = !!process.env.GOOGLE_CLIENT_ID ? 'yes' : 'MISSING';
   results.hasClientSecret = !!process.env.GOOGLE_CLIENT_SECRET ? 'yes' : 'MISSING';
   results.hasRefreshToken = !!process.env.GOOGLE_REFRESH_TOKEN ? 'yes' : 'MISSING';
-  results.hasFolderId = !!process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ? 'yes' : 'MISSING';
-  results.folderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? 'not set';
+  const folderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? '';
+  results.hasFolderId = folderId ? 'yes' : 'MISSING';
+  // Show only first/last 4 chars so you can confirm it's the right ID without exposing it
+  results.folderIdHint = folderId
+    ? `${folderId.slice(0, 4)}…${folderId.slice(-4)}`
+    : 'not set';
 
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
     results.status = 'Missing OAuth2 credentials — add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN';
