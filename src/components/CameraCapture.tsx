@@ -68,9 +68,12 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
           };
           xhr.onload = () => {
             if (xhr.status < 300) resolve();
-            else reject(new Error(`Upload failed (${xhr.status})`));
+            else {
+              const detail = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
+              reject(new Error(`Upload failed (${xhr.status})${detail}`));
+            }
           };
-          xhr.onerror = () => reject(new Error('Upload failed — tap to retry'));
+          xhr.onerror = () => reject(new Error('Upload failed — network error'));
           xhr.send(file);
         })
         .catch((err: Error) => reject(err));

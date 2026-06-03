@@ -63,6 +63,11 @@ export async function createResumableUploadSession(
     }
   );
 
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Drive resumable session failed (${response.status}): ${body}`);
+  }
+
   const uploadUrl = response.headers.get('Location');
   if (!uploadUrl) throw new Error('Failed to get upload URL from Google Drive');
   return uploadUrl;
