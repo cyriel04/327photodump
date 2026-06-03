@@ -23,7 +23,8 @@ export async function POST(request: NextRequest) {
     const response: UploadSessionResponse = { uploadUrl, folderId };
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Upload session error:', error);
-    return NextResponse.json({ error: 'Failed to create upload session' }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Upload session error:', message);
+    return NextResponse.json({ error: 'Failed to create upload session', detail: message }, { status: 500 });
   }
 }

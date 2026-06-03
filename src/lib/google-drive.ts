@@ -2,9 +2,11 @@ import { google } from 'googleapis';
 
 function getAuth() {
   const key = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY!);
+  // Vercel sometimes escapes \n in env vars — restore actual newlines in the private key
+  const privateKey = key.private_key.replace(/\\n/g, '\n');
   return new google.auth.JWT({
     email: key.client_email,
-    key: key.private_key,
+    key: privateKey,
     scopes: ['https://www.googleapis.com/auth/drive'],
   });
 }
