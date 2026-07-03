@@ -1,5 +1,7 @@
 # 327 Photo Dump
 
+https://327photodump.vercel.app/
+
 A mobile-first disposable camera app for weddings. Guests scan a QR code, type their name, and get 30 shots — photos or short videos — that upload directly to a shared Google Drive folder. No accounts, no app install, no friction.
 
 Each guest gets their own subfolder. The couple gets everything in one place.
