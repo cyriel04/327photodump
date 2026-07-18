@@ -45,6 +45,13 @@ describe('Lightbox', () => {
     );
   });
 
+  it('grants the video iframe fullscreen permission so iOS Safari does not overlay native controls on top of the Drive player', () => {
+    render(<Lightbox files={files} startIndex={1} onClose={jest.fn()} />);
+    const iframe = document.querySelector('iframe');
+    expect(iframe).toHaveAttribute('allow', 'autoplay; fullscreen');
+    expect(iframe).toHaveAttribute('allowfullscreen');
+  });
+
   it('calls onClose when the close button is tapped', async () => {
     const onClose = jest.fn();
     render(<Lightbox files={files} startIndex={0} onClose={onClose} />);
