@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { GalleryFile, GalleryFeedEntry } from '@/types';
 
 function getAuth() {
   const oauth2Client = new google.auth.OAuth2(
@@ -33,7 +34,84 @@ export async function findOrCreateGuestFolder(guestName: string): Promise<string
     fields: 'id',
   });
 
+  await setFolderPubliclyViewable(folder.data.id!);
+
   return folder.data.id!;
+}
+
+export async function setFolderPubliclyViewable(folderId: string): Promise<void> {
+  const auth = getAuth();
+  const drive = google.drive({ version: 'v3', auth });
+  await drive.permissions.create({
+    fileId: folderId,
+    requestBody: { role: 'reader', type: 'anyone' },
+  });
+}
+
+export async function listGuestFiles(guestName: string): Promise<GalleryFile[]> {
+  const auth = getAuth();
+  const drive = google.drive({ version: 'v3', auth });
+  const folderId = await findOrCreateGuestFolder(guestName);
+
+  const response = await drive.files.list({
+    q: `'${folderId}' in parents and trashed=false`,
+    fields: 'files(id, mimeType, thumbnailLink, webContentLink, createdTime)',
+    orderBy: 'createdTime desc',
+  });
+
+  return (response.data.files ?? []).map((file) => ({
+    id: file.id!,
+    mimeType: file.mimeType!,
+    thumbnailLink: file.thumbnailLink ?? null,
+    viewUrl: file.webContentLink!,
+    createdTime: file.createdTime!,
+  }));
+}
+
+const FOLDER_CHUNK_SIZE = 100;
+
+export async function listGuestsByActivity(): Promise<GalleryFeedEntry[]> {
+  const auth = getAuth();
+  const drive = google.drive({ version: 'v3', auth });
+  const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+
+  const foldersResponse = await drive.files.list({
+    q: `'${rootFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+    fields: 'files(id, name)',
+  });
+  const folders = foldersResponse.data.files ?? [];
+  if (folders.length === 0) return [];
+
+  const folderNameById = new Map(folders.map((f) => [f.id!, f.name!]));
+  const mostRecentByFolder = new Map<string, { thumbnailLink: string | null; createdTime: string }>();
+
+  for (let i = 0; i < folders.length; i += FOLDER_CHUNK_SIZE) {
+    const chunk = folders.slice(i, i + FOLDER_CHUNK_SIZE);
+    const q = chunk.map((f) => `'${f.id}' in parents`).join(' or ');
+    const filesResponse = await drive.files.list({
+      q: `(${q}) and trashed=false`,
+      fields: 'files(parents, thumbnailLink, createdTime)',
+      orderBy: 'createdTime desc',
+      pageSize: 1000,
+    });
+
+    for (const file of filesResponse.data.files ?? []) {
+      const folderId = file.parents?.[0];
+      if (!folderId || mostRecentByFolder.has(folderId)) continue;
+      mostRecentByFolder.set(folderId, {
+        thumbnailLink: file.thumbnailLink ?? null,
+        createdTime: file.createdTime!,
+      });
+    }
+  }
+
+  return Array.from(mostRecentByFolder.entries())
+    .map(([folderId, info]) => ({
+      guestName: folderNameById.get(folderId)!,
+      coverThumbnail: info.thumbnailLink,
+      mostRecentTime: info.createdTime,
+    }))
+    .sort((a, b) => (a.mostRecentTime < b.mostRecentTime ? 1 : -1));
 }
 
 export async function createResumableUploadSession(

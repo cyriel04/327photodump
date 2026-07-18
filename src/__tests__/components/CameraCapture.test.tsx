@@ -8,19 +8,43 @@ global.URL.revokeObjectURL = jest.fn();
 
 describe('CameraCapture', () => {
   it('renders greeting with shots remaining', () => {
-    render(<CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={jest.fn()} />);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
     expect(screen.getByText(/Cyriel/)).toBeInTheDocument();
     expect(screen.getByText(/25 shots/i)).toBeInTheDocument();
   });
 
   it('renders Take Photo and Record Video buttons', () => {
-    render(<CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={jest.fn()} />);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
     expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /record video/i })).toBeInTheDocument();
   });
 
   it('shows error when video file exceeds 100MB', async () => {
-    render(<CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={jest.fn()} />);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
 
     const videoInput = document.querySelector('input[accept="video/*"]') as HTMLInputElement;
     const bigFile = new File(['x'], 'big.mp4', { type: 'video/mp4' });
@@ -32,7 +56,15 @@ describe('CameraCapture', () => {
   });
 
   it('shows Upload and Retake buttons after a valid file is selected', async () => {
-    render(<CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={jest.fn()} />);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
 
     const photoInput = document.querySelector('input[accept="image/*"]') as HTMLInputElement;
     const file = new File(['data'], 'photo.jpg', { type: 'image/jpeg' });
@@ -68,7 +100,13 @@ describe('CameraCapture', () => {
       .mockImplementation(() => mockXhr as unknown as XMLHttpRequest);
 
     render(
-      <CameraCapture guestName="Cyriel" shotsRemaining={25} onUploadSuccess={onUploadSuccess} />
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={onUploadSuccess}
+        onEndSession={jest.fn()}
+      />
     );
 
     const photoInput = document.querySelector('input[accept="image/*"]') as HTMLInputElement;
@@ -77,5 +115,68 @@ describe('CameraCapture', () => {
     await userEvent.click(screen.getByRole('button', { name: /upload/i }));
 
     await waitFor(() => expect(onUploadSuccess).toHaveBeenCalled());
+  });
+
+  it('does not show the "I\'m done" link before any shots are taken', () => {
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={30}
+        shotCount={0}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
+    expect(screen.queryByText(/i'm done/i)).not.toBeInTheDocument();
+  });
+
+  it('shows the "I\'m done" link after at least one shot', () => {
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
+    expect(screen.getByText(/i'm done/i)).toBeInTheDocument();
+  });
+
+  it('calls onEndSession when confirmed', async () => {
+    const onEndSession = jest.fn();
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={onEndSession}
+      />
+    );
+
+    await userEvent.click(screen.getByText(/i'm done/i));
+
+    expect(window.confirm).toHaveBeenCalledWith('End your film now with 5 shots?');
+    expect(onEndSession).toHaveBeenCalled();
+  });
+
+  it('does not call onEndSession when the confirm is dismissed', async () => {
+    const onEndSession = jest.fn();
+    jest.spyOn(window, 'confirm').mockReturnValue(false);
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={onEndSession}
+      />
+    );
+
+    await userEvent.click(screen.getByText(/i'm done/i));
+
+    expect(onEndSession).not.toHaveBeenCalled();
   });
 });
