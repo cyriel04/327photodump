@@ -9,3 +9,17 @@ export interface UploadSessionResponse {
   uploadUrl: string;
   folderId: string;
 }
+
+export interface GalleryFile {
+  id: string;
+  mimeType: string;
+  thumbnailLink: string | null;
+  viewUrl: string;
+  createdTime: string;
+}
+
+export interface GalleryFeedEntry {
+  guestName: string;
+  coverThumbnail: string | null;
+  mostRecentTime: string;
+}
