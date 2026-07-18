@@ -6,7 +6,7 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { Gallery } from '@/components/Gallery';
 
 export default function Home() {
-  const { guestName, shotsRemaining, isOutOfFilm, setGuestName, incrementShot } =
+  const { guestName, shotCount, shotsRemaining, isOutOfFilm, setGuestName, incrementShot, endSession } =
     useGuestSession();
 
   if (!guestName) return <NameEntry onSubmit={setGuestName} />;
@@ -15,7 +15,9 @@ export default function Home() {
     <CameraCapture
       guestName={guestName}
       shotsRemaining={shotsRemaining}
+      shotCount={shotCount}
       onUploadSuccess={incrementShot}
+      onEndSession={endSession}
     />
   );
 }

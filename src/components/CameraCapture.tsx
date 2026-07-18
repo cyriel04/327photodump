@@ -10,12 +10,14 @@ const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
 interface Props {
   guestName: string;
   shotsRemaining: number;
+  shotCount: number;
   onUploadSuccess: () => void;
+  onEndSession: () => void;
 }
 
 type UploadStatus = 'idle' | 'uploading' | 'error';
 
-export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Props) {
+export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSuccess, onEndSession }: Props) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +99,12 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
     }
   };
 
+  const handleEndSession = () => {
+    if (window.confirm(`End your film now with ${shotCount} shot${shotCount === 1 ? '' : 's'}?`)) {
+      onEndSession();
+    }
+  };
+
   const handleRetake = () => {
     setPendingFile(null);
     setPreviewUrl(null);
@@ -144,6 +152,15 @@ export function CameraCapture({ guestName, shotsRemaining, onUploadSuccess }: Pr
               onChange={handleFileChange}
               className="hidden"
             />
+            {shotCount > 0 && (
+              <button
+                type="button"
+                onClick={handleEndSession}
+                className="text-xs text-muted-foreground underline self-center"
+              >
+                I&apos;m done — end film early
+              </button>
+            )}
           </div>
         )}
 

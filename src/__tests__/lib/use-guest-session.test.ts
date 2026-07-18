@@ -51,4 +51,16 @@ describe('useGuestSession', () => {
     expect(result.current.isOutOfFilm).toBe(true);
     expect(result.current.shotsRemaining).toBe(0);
   });
+
+  it('endSession sets shotCount to MAX_SHOTS and persists it', () => {
+    const { result } = renderHook(() => useGuestSession());
+
+    act(() => { result.current.setGuestName('Cyriel'); });
+    act(() => { result.current.incrementShot(); });
+    act(() => { result.current.endSession(); });
+
+    expect(result.current.shotCount).toBe(30);
+    expect(result.current.isOutOfFilm).toBe(true);
+    expect(localStorage.getItem('shotCount_Cyriel')).toBe('30');
+  });
 });
