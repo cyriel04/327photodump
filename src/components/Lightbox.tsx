@@ -62,10 +62,13 @@ export function Lightbox({ files, startIndex, onClose }: Props) {
       )}
 
       {isVideo ? (
+        // Without fullscreen permission granted here, iOS Safari overlays its own
+        // native video controls on top of the Drive player's controls.
         <iframe
           key={file.id}
           src={`https://drive.google.com/file/d/${file.id}/preview`}
-          allow="autoplay"
+          allow="autoplay; fullscreen"
+          allowFullScreen
           className="w-[90vw] h-[70vh] border-0"
         />
       ) : hasErrored || !file.thumbnailLink ? (

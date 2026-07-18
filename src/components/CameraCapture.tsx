@@ -23,6 +23,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   const [error, setError] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
 
@@ -99,10 +100,11 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
     }
   };
 
-  const handleEndSession = () => {
-    if (window.confirm(`End your film now with ${shotCount} shot${shotCount === 1 ? '' : 's'}?`)) {
-      onEndSession();
-    }
+  // window.confirm() is unreliable on mobile (silently no-ops in Brave, in-app
+  // webviews, and iOS Safari right after a native camera handoff), so the
+  // confirmation is rendered in-page instead of using a native dialog.
+  const handleCancelEndSession = () => {
+    setConfirmingEnd(false);
   };
 
   const handleRetake = () => {
@@ -152,14 +154,37 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               onChange={handleFileChange}
               className="hidden"
             />
-            {shotCount > 0 && (
+            {shotCount > 0 && !confirmingEnd && (
               <button
                 type="button"
-                onClick={handleEndSession}
+                onClick={() => setConfirmingEnd(true)}
                 className="text-xs text-muted-foreground underline self-center"
               >
                 I&apos;m done — end film early
               </button>
+            )}
+            {confirmingEnd && (
+              <div className="flex flex-col items-center gap-2 text-center">
+                <p className="text-xs text-muted-foreground">
+                  End your film now with {shotCount} shot{shotCount === 1 ? '' : 's'}?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={onEndSession}
+                    className="text-xs font-semibold text-amber-400 underline"
+                  >
+                    Yes, end it
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEndSession}
+                    className="text-xs text-muted-foreground underline"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

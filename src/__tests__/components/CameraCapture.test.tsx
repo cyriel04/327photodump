@@ -143,9 +143,26 @@ describe('CameraCapture', () => {
     expect(screen.getByText(/i'm done/i)).toBeInTheDocument();
   });
 
-  it('calls onEndSession when confirmed', async () => {
+  it('shows an inline confirmation instead of a native dialog when "I\'m done" is tapped', async () => {
+    render(
+      <CameraCapture
+        guestName="Cyriel"
+        shotsRemaining={25}
+        shotCount={5}
+        onUploadSuccess={jest.fn()}
+        onEndSession={jest.fn()}
+      />
+    );
+
+    await userEvent.click(screen.getByText(/i'm done/i));
+
+    expect(screen.getByText('End your film now with 5 shots?')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /yes, end it/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument();
+  });
+
+  it('calls onEndSession when the inline confirmation is accepted', async () => {
     const onEndSession = jest.fn();
-    jest.spyOn(window, 'confirm').mockReturnValue(true);
     render(
       <CameraCapture
         guestName="Cyriel"
@@ -157,14 +174,13 @@ describe('CameraCapture', () => {
     );
 
     await userEvent.click(screen.getByText(/i'm done/i));
+    await userEvent.click(screen.getByRole('button', { name: /yes, end it/i }));
 
-    expect(window.confirm).toHaveBeenCalledWith('End your film now with 5 shots?');
     expect(onEndSession).toHaveBeenCalled();
   });
 
-  it('does not call onEndSession when the confirm is dismissed', async () => {
+  it('does not call onEndSession and hides the confirmation when cancelled', async () => {
     const onEndSession = jest.fn();
-    jest.spyOn(window, 'confirm').mockReturnValue(false);
     render(
       <CameraCapture
         guestName="Cyriel"
@@ -176,7 +192,10 @@ describe('CameraCapture', () => {
     );
 
     await userEvent.click(screen.getByText(/i'm done/i));
+    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
 
     expect(onEndSession).not.toHaveBeenCalled();
+    expect(screen.queryByText('End your film now with 5 shots?')).not.toBeInTheDocument();
+    expect(screen.getByText(/i'm done/i)).toBeInTheDocument();
   });
 });
