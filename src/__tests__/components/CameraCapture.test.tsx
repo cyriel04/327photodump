@@ -346,6 +346,7 @@ describe('CameraCapture', () => {
   it('shows the friendly message when the upload session request fails', async () => {
     global.fetch = jest.fn().mockResolvedValue({
       ok: false,
+      status: 500,
       json: () => Promise.resolve({ error: 'Failed to create upload session', detail: 'invalid_grant' }),
     }) as jest.Mock;
     renderCamera();
@@ -357,6 +358,104 @@ describe('CameraCapture', () => {
       await screen.findByText('Upload failed — check your connection and tap Upload to retry')
     ).toBeInTheDocument();
     expect(screen.queryByText(/invalid_grant/)).not.toBeInTheDocument();
+  });
+
+  it('shows an error when a photo exceeds 50MB and does not show the preview', async () => {
+    renderCamera();
+    const photoInput = document.querySelector('input[accept="image/*"]') as HTMLInputElement;
+    const bigFile = new File(['x'], 'big.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(bigFile, 'size', { value: 51 * 1024 * 1024 });
+
+    await userEvent.upload(photoInput, bigFile);
+
+    expect(screen.getByText('Photo too large — try again')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: 'Preview' })).not.toBeInTheDocument();
+    expect(photoInput.value).toBe('');
+  });
+
+  it('accepts a photo of exactly 50MB', async () => {
+    renderCamera();
+    const photoInput = document.querySelector('input[accept="image/*"]') as HTMLInputElement;
+    const file = new File(['x'], 'edge.jpg', { type: 'image/jpeg' });
+    Object.defineProperty(file, 'size', { value: 50 * 1024 * 1024 });
+
+    await userEvent.upload(photoInput, file);
+
+    expect(screen.queryByText(/too large/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Preview' })).toBeInTheDocument();
+  });
+
+  describe('when the upload session is rejected with a 4xx', () => {
+    function mockRejectedSession(error: unknown) {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve(error),
+      }) as jest.Mock;
+    }
+
+    it.each([
+      ['Image too large', 'Photo too large — try again'],
+      ['Video too large', 'Video too large — try a shorter clip'],
+    ])('maps "%s" to a friendly, non-retry message', async (apiError, friendly) => {
+      const onUploadSuccess = jest.fn();
+      mockRejectedSession({ error: apiError });
+      const xhrSpy = jest.spyOn(window, 'XMLHttpRequest');
+      renderCamera({ onUploadSuccess });
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+
+      expect(await screen.findByText(friendly)).toBeInTheDocument();
+      expect(screen.queryByText(/check your connection/i)).not.toBeInTheDocument();
+      expect(onUploadSuccess).not.toHaveBeenCalled();
+      expect(xhrSpy).not.toHaveBeenCalled();
+    });
+
+    it('shows a generic non-retry message for other 4xx errors without leaking the raw error', async () => {
+      mockRejectedSession({ error: 'Unsupported file type' });
+      renderCamera();
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+
+      expect(
+        await screen.findByText("This file can't be uploaded — try retaking it")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/unsupported file type/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/check your connection/i)).not.toBeInTheDocument();
+    });
+
+    it('shows the generic non-retry message when the 4xx body is not JSON', async () => {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 413,
+        json: () => Promise.reject(new SyntaxError('Unexpected token')),
+      }) as jest.Mock;
+      renderCamera();
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+
+      expect(
+        await screen.findByText("This file can't be uploaded — try retaking it")
+      ).toBeInTheDocument();
+    });
+
+    it('hides Upload but keeps Retake so the guest takes a new shot instead of retrying', async () => {
+      mockRejectedSession({ error: 'Image too large' });
+      renderCamera();
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+      await screen.findByText('Photo too large — try again');
+
+      expect(screen.queryByRole('button', { name: /^upload$/i })).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: /retake/i }));
+
+      expect(screen.getByRole('button', { name: /take photo/i })).toBeInTheDocument();
+      expect(screen.queryByText('Photo too large — try again')).not.toBeInTheDocument();
+    });
   });
 
   it('revokes the preview object URL on retake', async () => {

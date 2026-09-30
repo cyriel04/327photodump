@@ -6,10 +6,40 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
 
+// Mirrors MAX_IMAGE_SIZE / MAX_VIDEO_SIZE in src/app/api/_lib/validation.ts —
+// keep in sync. Duplicated because server code must not be imported client-side.
+const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
-// Shown for every upload failure. Raw Drive/API responses are never surfaced to
-// guests — they're meaningless to them and can leak internal details.
+
+const IMAGE_TOO_LARGE_MESSAGE = 'Photo too large — try again';
+const VIDEO_TOO_LARGE_MESSAGE = 'Video too large — try a shorter clip';
+// Raw Drive/API responses are never surfaced to guests — they're meaningless to
+// them and can leak internal details.
+// Transient failures (5xx, network, Drive PUT): the same file can be retried.
 const UPLOAD_FAILED_MESSAGE = 'Upload failed — check your connection and tap Upload to retry';
+// Our API rejected the file itself (4xx): retrying the same file won't help.
+const UPLOAD_REJECTED_MESSAGE = "This file can't be uploaded — try retaking it";
+
+// Maps known `error` strings from POST /api/upload-session 400s to guest-facing text.
+const REJECTION_MESSAGES: Record<string, string> = {
+  'Image too large': IMAGE_TOO_LARGE_MESSAGE,
+  'Video too large': VIDEO_TOO_LARGE_MESSAGE,
+};
+
+/** The API refused this file (4xx) — carries the guest-facing message. */
+class UploadRejectedError extends Error {}
+
+async function rejectionMessage(res: Response): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+      return REJECTION_MESSAGES[body.error] ?? UPLOAD_REJECTED_MESSAGE;
+    }
+  } catch {
+    // Non-JSON body (e.g. a proxy's 413 page) — fall through to the generic message.
+  }
+  return UPLOAD_REJECTED_MESSAGE;
+}
 
 interface Props {
   guestName: string;
@@ -19,7 +49,8 @@ interface Props {
   onEndSession: () => void;
 }
 
-type UploadStatus = 'idle' | 'uploading' | 'error';
+// 'error' = retryable failure; 'rejected' = the API refused the file, retake needed.
+type UploadStatus = 'idle' | 'uploading' | 'error' | 'rejected';
 
 export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSuccess, onEndSession }: Props) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
@@ -69,7 +100,11 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
     if (!file) return;
 
     if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) {
-      setError('Video too large — try a shorter clip');
+      setError(VIDEO_TOO_LARGE_MESSAGE);
+      return;
+    }
+    if (file.type.startsWith('image/') && file.size > MAX_IMAGE_SIZE) {
+      setError(IMAGE_TOO_LARGE_MESSAGE);
       return;
     }
 
@@ -94,7 +129,10 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guestName, fileName, mimeType: file.type, fileSize: file.size }),
       })
-        .then((res) => {
+        .then(async (res) => {
+          if (res.status >= 400 && res.status < 500) {
+            throw new UploadRejectedError(await rejectionMessage(res));
+          }
           if (!res.ok) throw new Error(`Upload session request failed (${res.status})`);
           return res.json();
         })
@@ -130,9 +168,15 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
       onUploadSuccess();
     } catch (err) {
       console.error('Upload failed:', err);
-      // Keep pendingFile + preview so the guest can retry without re-taking the shot.
-      setUploadStatus('error');
-      setError(UPLOAD_FAILED_MESSAGE);
+      if (err instanceof UploadRejectedError) {
+        // Retrying the same file would be refused again — only Retake is offered.
+        setUploadStatus('rejected');
+        setError(err.message);
+      } else {
+        // Keep pendingFile + preview so the guest can retry without re-taking the shot.
+        setUploadStatus('error');
+        setError(UPLOAD_FAILED_MESSAGE);
+      }
     } finally {
       uploadingRef.current = false;
     }
@@ -248,19 +292,26 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
             <div className="flex gap-3">
               {/* No `disabled` here — iOS drops taps near disabled buttons. The
                   handler's ref guard ignores taps while an upload is running. */}
-              <Button
-                type="button"
-                onClick={handleUpload}
-                aria-busy={uploadStatus === 'uploading'}
-                className={cn(
-                  'flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold',
-                  uploadStatus === 'uploading' && 'opacity-50 cursor-not-allowed'
-                )}
-              >
-                {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
-              </Button>
+              {uploadStatus !== 'rejected' && (
+                <Button
+                  type="button"
+                  onClick={handleUpload}
+                  aria-busy={uploadStatus === 'uploading'}
+                  className={cn(
+                    'flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold',
+                    uploadStatus === 'uploading' && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
+                </Button>
+              )}
               {uploadStatus !== 'uploading' && (
-                <Button type="button" onClick={handleRetake} variant="outline">
+                <Button
+                  type="button"
+                  onClick={handleRetake}
+                  variant="outline"
+                  className={cn(uploadStatus === 'rejected' && 'flex-1')}
+                >
                   Retake
                 </Button>
               )}
