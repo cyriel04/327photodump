@@ -99,12 +99,14 @@ export async function findOrCreateGuestFolder(guestName: string): Promise<string
     await setFolderPubliclyViewable(folderId);
   } catch (error) {
     // A private folder would be found by later uploads and never made public,
-    // so thumbnails would never load. Remove it so the next upload retries cleanly.
+    // so thumbnails would never load. Trash it (every query filters trashed=false)
+    // so the next upload retries cleanly — trashing rather than deleting keeps any
+    // shot a concurrent same-name upload already put in it recoverable.
     try {
-      await drive.files.delete({ fileId: folderId });
+      await drive.files.update({ fileId: folderId, requestBody: { trashed: true } });
     } catch (cleanupError) {
       const message = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
-      console.error(`Failed to remove private guest folder for "${guestName}":`, message);
+      console.error(`Failed to trash private guest folder for "${guestName}":`, message);
     }
     throw error;
   }

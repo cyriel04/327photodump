@@ -16,6 +16,7 @@ jest.mock('googleapis', () => {
   const filesList = jest.fn();
   const filesCreate = jest.fn();
   const filesDelete = jest.fn();
+  const filesUpdate = jest.fn();
   const permissionsCreate = jest.fn();
   const getAccessToken = jest.fn();
   const setCredentials = jest.fn();
@@ -25,11 +26,11 @@ jest.mock('googleapis', () => {
         OAuth2: jest.fn().mockImplementation(() => ({ getAccessToken, setCredentials })),
       },
       drive: jest.fn().mockReturnValue({
-        files: { list: filesList, create: filesCreate, delete: filesDelete },
+        files: { list: filesList, create: filesCreate, delete: filesDelete, update: filesUpdate },
         permissions: { create: permissionsCreate },
       }),
     },
-    __mockFns: { filesList, filesCreate, filesDelete, permissionsCreate, getAccessToken, setCredentials },
+    __mockFns: { filesList, filesCreate, filesDelete, filesUpdate, permissionsCreate, getAccessToken, setCredentials },
   };
 });
 
@@ -37,6 +38,7 @@ const { __mockFns } = jest.requireMock('googleapis');
 const mockFilesList: jest.Mock = __mockFns.filesList;
 const mockFilesCreate: jest.Mock = __mockFns.filesCreate;
 const mockFilesDelete: jest.Mock = __mockFns.filesDelete;
+const mockFilesUpdate: jest.Mock = __mockFns.filesUpdate;
 const mockPermissionsCreate: jest.Mock = __mockFns.permissionsCreate;
 const mockGetAccessToken: jest.Mock = __mockFns.getAccessToken;
 
@@ -101,35 +103,36 @@ describe('findGuestFolder ordering', () => {
 });
 
 describe('findOrCreateGuestFolder permission failure', () => {
-  it('deletes the just-created folder and rethrows when permissions.create fails', async () => {
+  it('trashes (never hard-deletes) the just-created folder and rethrows when permissions.create fails', async () => {
     mockFilesList.mockResolvedValue({ data: { files: [] } });
     mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
     mockPermissionsCreate.mockRejectedValueOnce(new Error('permission denied'));
-    mockFilesDelete.mockResolvedValue({});
+    mockFilesUpdate.mockResolvedValue({});
 
     await expect(findOrCreateGuestFolder('Cyriel')).rejects.toThrow('permission denied');
-    expect(mockFilesDelete).toHaveBeenCalledWith({ fileId: 'new-folder-id' });
+    expect(mockFilesUpdate).toHaveBeenCalledWith({ fileId: 'new-folder-id', requestBody: { trashed: true } });
+    expect(mockFilesDelete).not.toHaveBeenCalled();
   });
 
-  it('still rethrows the permission error and logs when the cleanup delete also fails', async () => {
+  it('still rethrows the permission error and logs when the cleanup trash also fails', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockFilesList.mockResolvedValue({ data: { files: [] } });
     mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
     mockPermissionsCreate.mockRejectedValueOnce(new Error('permission denied'));
-    mockFilesDelete.mockRejectedValueOnce(new Error('delete failed'));
+    mockFilesUpdate.mockRejectedValueOnce(new Error('trash failed'));
 
     await expect(findOrCreateGuestFolder("O'Brien")).rejects.toThrow('permission denied');
-    expect(mockFilesDelete).toHaveBeenCalledWith({ fileId: 'new-folder-id' });
+    expect(mockFilesUpdate).toHaveBeenCalledWith({ fileId: 'new-folder-id', requestBody: { trashed: true } });
     expect(errorSpy).toHaveBeenCalled();
     const logged = errorSpy.mock.calls.flat().map(String).join(' ');
-    expect(logged).toContain('delete failed');
+    expect(logged).toContain('trash failed');
     expect(logged).not.toContain('test-refresh-token');
     expect(logged).not.toContain('test-client-secret');
     expect(logged).not.toContain('root-folder-id');
     errorSpy.mockRestore();
   });
 
-  it('does not delete anything when the permission succeeds', async () => {
+  it('does not trash or delete anything when the permission succeeds', async () => {
     mockFilesList.mockResolvedValue({ data: { files: [] } });
     mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
     mockPermissionsCreate.mockResolvedValue({});
@@ -137,6 +140,7 @@ describe('findOrCreateGuestFolder permission failure', () => {
     await findOrCreateGuestFolder('Cyriel');
 
     expect(mockFilesDelete).not.toHaveBeenCalled();
+    expect(mockFilesUpdate).not.toHaveBeenCalled();
   });
 });
 
