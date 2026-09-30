@@ -95,7 +95,7 @@ Auth is an OAuth2 refresh token for the Drive owner — **not** a service accoun
    `'a' in parents or 'b' in parents` like `listGuestsByActivity` does. Always pass
    `fields` so responses stay small. Note any listing that isn't paginated and
    could exceed `pageSize`.
-5. **Verify before reporting.** Run `npm test` and `npx tsc --noEmit`. Run
+5. **Verify before reporting.** Run `npm run lint`, `npm test` and `npx tsc --noEmit`. Run
    `npm run build` if you changed a route's exports or config.
 
 ## Reporting back

@@ -89,7 +89,7 @@ These have each broken the app in production. Don't reintroduce them:
    layouts as server components.
 4. **Next.js 16.** Check `node_modules/next/dist/docs/` before trusting memory —
    APIs and conventions have changed. Heed deprecation notices.
-5. **Verify before reporting.** Run `npm test` and `npx tsc --noEmit`. Never report
+5. **Verify before reporting.** Run `npm run lint`, `npm test` and `npx tsc --noEmit`. Never report
    done on unverified work. If you can, say what you'd want checked on a real
    iPhone, because jsdom can't.
 

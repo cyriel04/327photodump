@@ -132,13 +132,17 @@ vercel env add DEBUG_TOKEN   # optional — only if you want /api/debug in produ
 
 ---
 
-## Tests
+## Tests and lint
 
 ```bash
 npm test
+npm run lint        # ESLint with eslint-config-next (core-web-vitals + typescript)
+npx tsc --noEmit
 ```
 
 Jest suites cover the Drive library (with `googleapis` and `fetch` mocked — tests never call real Drive), every API route, request validation, the localStorage hook, and the UI components. Run `npm test` for the current count.
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests and build on every PR to `main`; the `build` check is required to merge.
 
 ---
 

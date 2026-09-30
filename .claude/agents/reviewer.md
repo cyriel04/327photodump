@@ -78,7 +78,7 @@ in `src/app/globals.css`.
 
 ## Verify, don't assume
 
-Run `npm test` and `npx tsc --noEmit` yourself. If the implementer claimed tests
+Run `npm run lint`, `npm test` and `npx tsc --noEmit` yourself. If the implementer claimed tests
 pass, confirm it. Report the actual output.
 
 ## Output format
@@ -97,6 +97,7 @@ CONSIDER
 - file:line — optional improvement
 
 VERIFIED
+- lint: pass/fail
 - typecheck: pass/fail
 - tests: N passed, N failed
 - secret grep: GOOGLE_* / token / Bearer / NEXT_PUBLIC_ — findings
