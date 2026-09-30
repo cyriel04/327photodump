@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { MyShotsGrid } from '@/components/MyShotsGrid';
 import { FeedScreen } from '@/components/FeedScreen';
+import { cn } from '@/lib/utils';
 
 interface Props {
   guestName: string;
@@ -21,16 +22,22 @@ export function Gallery({ guestName }: Props) {
         <p className="text-muted-foreground text-sm">Thanks for capturing your POV 🎞</p>
       </div>
 
-      <div className="flex gap-2">
+      <div role="tablist" aria-label="Gallery" className="flex gap-2">
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'mine'}
           onClick={() => setTab('mine')}
-          className={tab === 'mine' ? 'font-semibold underline' : 'text-muted-foreground'}
+          className={cn('min-h-11 px-2', tab === 'mine' ? 'font-semibold underline' : 'text-muted-foreground')}
         >
           My Shots
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'feed'}
           onClick={() => setTab('feed')}
-          className={tab === 'feed' ? 'font-semibold underline' : 'text-muted-foreground'}
+          className={cn('min-h-11 px-2', tab === 'feed' ? 'font-semibold underline' : 'text-muted-foreground')}
         >
           Feed
         </button>

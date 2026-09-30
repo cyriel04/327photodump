@@ -22,7 +22,23 @@ describe('Gallery', () => {
 
   it('switches to Feed when the Feed tab is tapped', async () => {
     render(<Gallery guestName="Cyriel" />);
-    await userEvent.click(screen.getByRole('button', { name: 'Feed' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Feed' }));
     expect(screen.getByText('FeedScreen')).toBeInTheDocument();
+  });
+
+  it('exposes the switcher as an accessible tablist with the selected tab marked', async () => {
+    render(<Gallery guestName="Cyriel" />);
+    expect(screen.getByRole('tablist')).toBeInTheDocument();
+
+    const mine = screen.getByRole('tab', { name: 'My Shots' });
+    const feed = screen.getByRole('tab', { name: 'Feed' });
+    expect(mine).toHaveAttribute('aria-selected', 'true');
+    expect(feed).toHaveAttribute('aria-selected', 'false');
+    expect(mine).toHaveAttribute('type', 'button');
+    expect(feed).toHaveAttribute('type', 'button');
+
+    await userEvent.click(feed);
+    expect(feed).toHaveAttribute('aria-selected', 'true');
+    expect(mine).toHaveAttribute('aria-selected', 'false');
   });
 });

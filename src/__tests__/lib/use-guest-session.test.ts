@@ -63,4 +63,70 @@ describe('useGuestSession', () => {
     expect(result.current.isOutOfFilm).toBe(true);
     expect(localStorage.getItem('shotCount_Cyriel')).toBe('30');
   });
+
+  it.each([
+    ['not a number', 'abc'],
+    ['empty', ''],
+    ['negative', '-5'],
+  ])('treats a corrupted stored shot count (%s) as 0 on mount', (_label, stored) => {
+    localStorage.setItem('guestName', 'Cyriel');
+    localStorage.setItem('shotCount_Cyriel', stored);
+
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.guestName).toBe('Cyriel');
+    expect(result.current.shotCount).toBe(0);
+    expect(result.current.shotsRemaining).toBe(30);
+    expect(result.current.isOutOfFilm).toBe(false);
+  });
+
+  it('clamps a stored shot count above MAX_SHOTS', () => {
+    localStorage.setItem('guestName', 'Cyriel');
+    localStorage.setItem('shotCount_Cyriel', '99');
+
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.shotCount).toBe(30);
+    expect(result.current.shotsRemaining).toBe(0);
+    expect(result.current.isOutOfFilm).toBe(true);
+  });
+
+  it('treats a corrupted stored shot count as 0 when a name is set', () => {
+    localStorage.setItem('shotCount_Maria', 'NaN');
+    const { result } = renderHook(() => useGuestSession());
+
+    act(() => { result.current.setGuestName('Maria'); });
+
+    expect(result.current.shotCount).toBe(0);
+    act(() => { result.current.incrementShot(); });
+    expect(result.current.shotCount).toBe(1);
+    expect(localStorage.getItem('shotCount_Maria')).toBe('1');
+  });
+
+  it('never increments past MAX_SHOTS', () => {
+    localStorage.setItem('guestName', 'Cyriel');
+    localStorage.setItem('shotCount_Cyriel', '30');
+    const { result } = renderHook(() => useGuestSession());
+
+    act(() => { result.current.incrementShot(); });
+
+    expect(result.current.shotCount).toBe(30);
+    expect(localStorage.getItem('shotCount_Cyriel')).toBe('30');
+  });
+
+  it('still works when localStorage throws (Safari Private Browsing)', () => {
+    const getSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    const setSpy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    try {
+      const { result } = renderHook(() => useGuestSession());
+      act(() => { result.current.setGuestName('Private'); });
+      act(() => { result.current.incrementShot(); });
+      expect(result.current.shotCount).toBe(1);
+    } finally {
+      getSpy.mockRestore();
+      setSpy.mockRestore();
+    }
+  });
 });

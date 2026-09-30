@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { GalleryFile } from '@/types';
 import { Lightbox } from '@/components/Lightbox';
 import { Thumbnail } from '@/components/Thumbnail';
+import { thumbnailLabel } from '@/lib/utils';
 
 interface Props {
   guestName: string;
@@ -47,7 +48,13 @@ export function MyShotsGrid({ guestName }: Props) {
     <>
       <div className="grid grid-cols-3 gap-1">
         {files.map((file, i) => (
-          <button key={file.id} onClick={() => setOpenIndex(i)} className="aspect-square bg-muted overflow-hidden">
+          <button
+            key={file.id}
+            type="button"
+            onClick={() => setOpenIndex(i)}
+            aria-label={thumbnailLabel(file, i, files.length)}
+            className="aspect-square bg-muted overflow-hidden"
+          >
             <Thumbnail file={file} className="w-full h-full" />
           </button>
         ))}

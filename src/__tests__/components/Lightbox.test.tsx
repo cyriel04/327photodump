@@ -84,4 +84,65 @@ describe('Lightbox', () => {
     expect(screen.getByText(/couldn't load this photo/i)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
+
+  it('is exposed as a modal dialog', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('gives the close button type="button"', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(screen.getByLabelText('Close')).toHaveAttribute('type', 'button');
+  });
+
+  it('closes on Escape', async () => {
+    const onClose = jest.fn();
+    render(<Lightbox files={files} startIndex={0} onClose={onClose} />);
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('navigates with the arrow keys', async () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(document.querySelector('iframe')).toBeInTheDocument();
+
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(document.querySelector('iframe')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('navigates with left/right swipes', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 300, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 100, clientY: 210 }] });
+    expect(document.querySelector('iframe')).toBeInTheDocument();
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 300, clientY: 190 }] });
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('ignores small touch movements (taps)', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 200, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 180, clientY: 200 }] });
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('locks body scroll while open and restores it on close', () => {
+    document.body.style.overflow = 'auto';
+    const { unmount } = render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+    expect(document.body.style.overflow).toBe('auto');
+    document.body.style.overflow = '';
+  });
 });

@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
 
 const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+// Shown for every upload failure. Raw Drive/API responses are never surfaced to
+// guests — they're meaningless to them and can leak internal details.
+const UPLOAD_FAILED_MESSAGE = 'Upload failed — check your connection and tap Upload to retry';
 
 interface Props {
   guestName: string;
@@ -28,6 +32,24 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const hideControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // State updates don't land until the next render, so a fast double-tap could
+  // start two uploads. A ref flips synchronously and blocks the second tap.
+  const uploadingRef = useRef(false);
+  const previewUrlRef = useRef<string | null>(null);
+
+  const replacePreviewUrl = (next: string | null) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = next;
+    setPreviewUrl(next);
+  };
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      if (hideControlsTimeoutRef.current) clearTimeout(hideControlsTimeoutRef.current);
+    },
+    []
+  );
 
   const revealVideoControls = () => {
     setShowVideoControls(true);
@@ -42,6 +64,8 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so picking the same file again (e.g. after a rejection) still fires onChange.
+    e.target.value = '';
     if (!file) return;
 
     if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) {
@@ -51,7 +75,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
 
     setError(null);
     setPendingFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    replacePreviewUrl(URL.createObjectURL(file));
   };
 
   const getFileName = (file: File): string => {
@@ -71,8 +95,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         body: JSON.stringify({ guestName, fileName, mimeType: file.type, fileSize: file.size }),
       })
         .then((res) => {
-          if (!res.ok)
-            return res.json().then((b) => Promise.reject(new Error(b.error ?? 'Failed to get upload URL')));
+          if (!res.ok) throw new Error(`Upload session request failed (${res.status})`);
           return res.json();
         })
         .then(({ uploadUrl }: { uploadUrl: string }) => {
@@ -83,11 +106,8 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
             if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
           };
           xhr.onload = () => {
-            if (xhr.status < 300) resolve();
-            else {
-              const detail = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
-              reject(new Error(`Upload failed (${xhr.status})${detail}`));
-            }
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`Upload failed (${xhr.status})`));
           };
           xhr.onerror = () => reject(new Error('Upload failed — network error'));
           xhr.send(file);
@@ -96,20 +116,25 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
     });
 
   const handleUpload = async () => {
-    if (!pendingFile) return;
+    if (!pendingFile || uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploadStatus('uploading');
     setProgress(0);
     setError(null);
 
     try {
       await upload(pendingFile);
-      setPreviewUrl(null);
+      replacePreviewUrl(null);
       setPendingFile(null);
       setUploadStatus('idle');
       onUploadSuccess();
     } catch (err) {
+      console.error('Upload failed:', err);
+      // Keep pendingFile + preview so the guest can retry without re-taking the shot.
       setUploadStatus('error');
-      setError(err instanceof Error ? err.message : 'Upload failed — tap to retry');
+      setError(UPLOAD_FAILED_MESSAGE);
+    } finally {
+      uploadingRef.current = false;
     }
   };
 
@@ -121,8 +146,9 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   };
 
   const handleRetake = () => {
+    if (uploadingRef.current) return;
     setPendingFile(null);
-    setPreviewUrl(null);
+    replacePreviewUrl(null);
     setError(null);
     setUploadStatus('idle');
   };
@@ -220,16 +246,24 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               />
             )}
             <div className="flex gap-3">
+              {/* No `disabled` here — iOS drops taps near disabled buttons. The
+                  handler's ref guard ignores taps while an upload is running. */}
               <Button
+                type="button"
                 onClick={handleUpload}
-                disabled={uploadStatus === 'uploading'}
-                className="flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold"
+                aria-busy={uploadStatus === 'uploading'}
+                className={cn(
+                  'flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold',
+                  uploadStatus === 'uploading' && 'opacity-50 cursor-not-allowed'
+                )}
               >
                 {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
               </Button>
-              <Button onClick={handleRetake} variant="outline">
-                Retake
-              </Button>
+              {uploadStatus !== 'uploading' && (
+                <Button type="button" onClick={handleRetake} variant="outline">
+                  Retake
+                </Button>
+              )}
             </div>
           </div>
         )}

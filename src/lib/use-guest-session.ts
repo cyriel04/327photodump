@@ -24,6 +24,14 @@ function lsSet(key: string, value: string): void {
 	}
 }
 
+// A stored count can be corrupted (edited, truncated, written by an older build).
+// Anything that isn't a sane integer is treated as 0; values are clamped to MAX_SHOTS.
+function readShotCount(name: string): number {
+	const parsed = parseInt(lsGet(`shotCount_${name}`) ?? "0", 10);
+	if (!Number.isFinite(parsed) || parsed < 0) return 0;
+	return Math.min(parsed, MAX_SHOTS);
+}
+
 export function useGuestSession() {
 	const [guestName, setGuestNameState] = useState<string | null>(null);
 	const [shotCount, setShotCount] = useState(0);
@@ -31,7 +39,7 @@ export function useGuestSession() {
 	useEffect(() => {
 		const storedName = lsGet("guestName");
 		if (storedName) {
-			const count = parseInt(lsGet(`shotCount_${storedName}`) ?? "0", 10);
+			const count = readShotCount(storedName);
 			setGuestNameState(storedName);
 			setShotCount(count);
 		}
@@ -39,14 +47,14 @@ export function useGuestSession() {
 
 	const setGuestName = (name: string) => {
 		lsSet("guestName", name);
-		const count = parseInt(lsGet(`shotCount_${name}`) ?? "0", 10);
+		const count = readShotCount(name);
 		setGuestNameState(name);
 		setShotCount(count);
 	};
 
 	const incrementShot = () => {
 		if (!guestName) return;
-		const newCount = shotCount + 1;
+		const newCount = Math.min(shotCount + 1, MAX_SHOTS);
 		lsSet(`shotCount_${guestName}`, String(newCount));
 		setShotCount(newCount);
 	};
