@@ -118,6 +118,12 @@ vercel --prod
 
 `/api/debug` checks each step of the auth chain — env vars, token exchange, folder read, folder write, and resumable session creation. Useful for diagnosing issues without digging into logs. The folder ID is partially redacted in the output.
 
+Because it creates and deletes a test folder and opens an upload session, the route is locked down in production: it returns `404` unless a `DEBUG_TOKEN` env var is set **and** the request passes it as a query param, e.g. `/api/debug?token=<your DEBUG_TOKEN>` (compared in constant time). Leave `DEBUG_TOKEN` unset to disable the route entirely in production. In local development (`npm run dev`) it's open with no token.
+
+```bash
+vercel env add DEBUG_TOKEN   # optional — only if you want /api/debug in production
+```
+
 ---
 
 ## Tests

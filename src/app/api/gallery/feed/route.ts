@@ -8,6 +8,6 @@ export async function GET() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error('Gallery feed error:', message);
-    return NextResponse.json({ error: 'Failed to load feed', detail: message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to load feed' }, { status: 500 });
   }
 }
