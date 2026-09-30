@@ -6,6 +6,18 @@ beforeEach(() => {
 });
 
 describe('useGuestSession', () => {
+  it('reports isLoaded once localStorage has been read', () => {
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.isLoaded).toBe(true);
+  });
+
+  it('reports isLoaded even when a stored name is unusable', () => {
+    localStorage.setItem('guestName', '   ');
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.isLoaded).toBe(true);
+    expect(result.current.guestName).toBeNull();
+  });
+
   it('returns null guestName and 0 shotCount when localStorage is empty', () => {
     const { result } = renderHook(() => useGuestSession());
     expect(result.current.guestName).toBeNull();
