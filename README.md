@@ -145,6 +145,8 @@ In [Google Cloud Console](https://console.cloud.google.com):
 
 APIs & Services → OAuth consent screen → Test users → add your Gmail address. Without this you get `403: access_denied` in the next step.
 
+While the consent screen's publishing status is **Testing**, Google expires refresh tokens after 7 days and uploads start failing with `Upload session error: invalid_grant`. To stop that, click **Publish app** on the consent screen (you can ignore the "unverified app" warning for your own account), then get a new refresh token in step 3.
+
 ### 3. Get a refresh token
 
 Go to [OAuth Playground](https://developers.google.com/oauthplayground):

@@ -52,15 +52,16 @@ function readShotCount(name: string): number {
 export function useGuestSession() {
 	const [guestName, setGuestNameState] = useState<string | null>(null);
 	const [shotCount, setShotCount] = useState(0);
+	// False until localStorage has been read, so callers can avoid rendering
+	// NameEntry for a frame before switching to the real screen on refresh.
+	const [isLoaded, setIsLoaded] = useState(false);
 
 	useEffect(() => {
 		const storedName = lsGet("guestName");
 		if (storedName !== null && !isUsableGuestName(storedName)) {
 			// Send the guest back to NameEntry instead of locking them out.
 			lsRemove("guestName");
-			return;
-		}
-		if (storedName) {
+		} else if (storedName) {
 			const count = readShotCount(storedName);
 			// localStorage is only readable after hydration; reading it in a useState
 			// initialiser would make the server and client render differently.
@@ -68,6 +69,7 @@ export function useGuestSession() {
 			setGuestNameState(storedName);
 			setShotCount(count);
 		}
+		setIsLoaded(true);
 	}, []);
 
 	const setGuestName = (name: string) => {
@@ -91,6 +93,7 @@ export function useGuestSession() {
 	};
 
 	return {
+		isLoaded,
 		guestName,
 		shotCount,
 		shotsRemaining: MAX_SHOTS - shotCount,

@@ -6,9 +6,12 @@ import { CameraCapture } from '@/components/CameraCapture';
 import { Gallery } from '@/components/Gallery';
 
 export default function Home() {
-  const { guestName, shotCount, shotsRemaining, isOutOfFilm, setGuestName, incrementShot, endSession } =
+  const { isLoaded, guestName, shotCount, shotsRemaining, isOutOfFilm, setGuestName, incrementShot, endSession } =
     useGuestSession();
 
+  // Render nothing until the saved session is read; otherwise a refresh flashes
+  // NameEntry before switching to the camera or gallery.
+  if (!isLoaded) return null;
   if (!guestName) return <NameEntry onSubmit={setGuestName} />;
   if (isOutOfFilm) return <Gallery guestName={guestName} />;
   return (
