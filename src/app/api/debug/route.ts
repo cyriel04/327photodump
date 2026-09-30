@@ -1,17 +1,32 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { google } from 'googleapis';
+import { getAuth } from '@/lib/google-drive';
 
-function makeAuth() {
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID!,
-    process.env.GOOGLE_CLIENT_SECRET!,
-    'urn:ietf:wg:oauth:2.0:oob',
-  );
-  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
-  return oauth2Client;
+// Compare via SHA-256 digests so both buffers are the same length and the
+// comparison time does not reveal the token's length or contents.
+function tokensMatch(supplied: string, expected: string): boolean {
+  const a = createHash('sha256').update(supplied).digest();
+  const b = createHash('sha256').update(expected).digest();
+  return timingSafeEqual(a, b);
 }
 
-export async function GET() {
+// In production this route is hidden (404) unless DEBUG_TOKEN is set and the
+// request supplies it as ?token=. It creates/deletes Drive folders and upload
+// sessions, so it must not be publicly callable.
+function isAllowed(request: NextRequest): boolean {
+  if (process.env.NODE_ENV !== 'production') return true;
+  const expected = process.env.DEBUG_TOKEN;
+  if (!expected) return false;
+  const supplied = request.nextUrl.searchParams.get('token') ?? '';
+  return tokensMatch(supplied, expected);
+}
+
+export async function GET(request: NextRequest) {
+  if (!isAllowed(request)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
   const results: Record<string, string> = {};
 
   // 1. Check env vars exist
@@ -32,7 +47,7 @@ export async function GET() {
 
   // 2. Try getting an access token
   try {
-    const auth = makeAuth();
+    const auth = getAuth();
     const { token } = await auth.getAccessToken();
     results.auth = token ? 'ok' : 'FAILED — no token returned';
   } catch (e) {
@@ -42,7 +57,7 @@ export async function GET() {
 
   // 3. Try reading the root folder
   try {
-    const drive = google.drive({ version: 'v3', auth: makeAuth() });
+    const drive = google.drive({ version: 'v3', auth: getAuth() });
     const res = await drive.files.get({ fileId: process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID! });
     results.folderRead = `ok — found: ${res.data.name}`;
   } catch (e) {
@@ -51,7 +66,7 @@ export async function GET() {
 
   // 4. Test write access — create a temp subfolder then delete it
   try {
-    const drive = google.drive({ version: 'v3', auth: makeAuth() });
+    const drive = google.drive({ version: 'v3', auth: getAuth() });
     const created = await drive.files.create({
       requestBody: {
         name: '__debug_write_test__',
@@ -69,7 +84,7 @@ export async function GET() {
 
   // 5. Test resumable upload session creation
   try {
-    const auth = makeAuth();
+    const auth = getAuth();
     const { token } = await auth.getAccessToken();
     const res = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',

@@ -1,11 +1,52 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import { MAX_IMAGE_SIZE, MAX_VIDEO_SIZE } from '@/lib/upload-limits';
 
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+const IMAGE_TOO_LARGE_MESSAGE = 'Photo too large — try again';
+const VIDEO_TOO_LARGE_MESSAGE = 'Video too large — try a shorter clip';
+// Raw Drive/API responses are never surfaced to guests — they're meaningless to
+// them and can leak internal details.
+// Transient failures (5xx, network, Drive PUT): the same file can be retried.
+const UPLOAD_FAILED_MESSAGE = 'Upload failed — check your connection and tap Upload to retry';
+// Our API rejected the file itself (4xx): retrying the same file won't help.
+const UPLOAD_REJECTED_MESSAGE = "This file can't be uploaded — try retaking it";
+
+// Maps known `error` strings from POST /api/upload-session 400s to guest-facing text.
+const REJECTION_MESSAGES: Record<string, string> = {
+  'Image too large': IMAGE_TOO_LARGE_MESSAGE,
+  'Video too large': VIDEO_TOO_LARGE_MESSAGE,
+};
+
+/** The API refused this file (4xx) — carries the guest-facing message. */
+class UploadRejectedError extends Error {}
+
+async function rejectionMessage(res: Response): Promise<string> {
+  try {
+    const body: unknown = await res.json();
+    if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') {
+      return REJECTION_MESSAGES[body.error] ?? UPLOAD_REJECTED_MESSAGE;
+    }
+  } catch {
+    // Non-JSON body (e.g. a proxy's 413 page) — fall through to the generic message.
+  }
+  return UPLOAD_REJECTED_MESSAGE;
+}
+
+// Only trust an extension that looks like one (e.g. "jpg", "HEIC", "mov"). Names
+// without a dot, or with junk after the last dot, fall back to a sensible default.
+const FILE_EXTENSION = /^[a-z0-9]{1,5}$/i;
+
+function fileExtension(file: File): string {
+  const dot = file.name.lastIndexOf('.');
+  const candidate = dot >= 0 ? file.name.slice(dot + 1) : '';
+  if (FILE_EXTENSION.test(candidate)) return candidate;
+  return file.type.startsWith('image/') ? 'jpg' : 'mp4';
+}
 
 interface Props {
   guestName: string;
@@ -15,7 +56,8 @@ interface Props {
   onEndSession: () => void;
 }
 
-type UploadStatus = 'idle' | 'uploading' | 'error';
+// 'error' = retryable failure; 'rejected' = the API refused the file, retake needed.
+type UploadStatus = 'idle' | 'uploading' | 'error' | 'rejected';
 
 export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSuccess, onEndSession }: Props) {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>('idle');
@@ -28,6 +70,24 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const hideControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // State updates don't land until the next render, so a fast double-tap could
+  // start two uploads. A ref flips synchronously and blocks the second tap.
+  const uploadingRef = useRef(false);
+  const previewUrlRef = useRef<string | null>(null);
+
+  const replacePreviewUrl = (next: string | null) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    previewUrlRef.current = next;
+    setPreviewUrl(next);
+  };
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      if (hideControlsTimeoutRef.current) clearTimeout(hideControlsTimeoutRef.current);
+    },
+    []
+  );
 
   const revealVideoControls = () => {
     setShowVideoControls(true);
@@ -42,21 +102,27 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    // Reset so picking the same file again (e.g. after a rejection) still fires onChange.
+    e.target.value = '';
     if (!file) return;
 
     if (file.type.startsWith('video/') && file.size > MAX_VIDEO_SIZE) {
-      setError('Video too large — try a shorter clip');
+      setError(VIDEO_TOO_LARGE_MESSAGE);
+      return;
+    }
+    if (file.type.startsWith('image/') && file.size > MAX_IMAGE_SIZE) {
+      setError(IMAGE_TOO_LARGE_MESSAGE);
       return;
     }
 
     setError(null);
     setPendingFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    replacePreviewUrl(URL.createObjectURL(file));
   };
 
   const getFileName = (file: File): string => {
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const ext = file.name.split('.').pop() ?? (file.type.startsWith('image/') ? 'jpg' : 'mp4');
+    const ext = fileExtension(file);
     const prefix = file.type.startsWith('image/') ? 'photo' : 'video';
     return `${prefix}-${ts}.${ext}`;
   };
@@ -70,9 +136,11 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ guestName, fileName, mimeType: file.type, fileSize: file.size }),
       })
-        .then((res) => {
-          if (!res.ok)
-            return res.json().then((b) => Promise.reject(new Error(b.error ?? 'Failed to get upload URL')));
+        .then(async (res) => {
+          if (res.status >= 400 && res.status < 500) {
+            throw new UploadRejectedError(await rejectionMessage(res));
+          }
+          if (!res.ok) throw new Error(`Upload session request failed (${res.status})`);
           return res.json();
         })
         .then(({ uploadUrl }: { uploadUrl: string }) => {
@@ -83,11 +151,8 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
             if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
           };
           xhr.onload = () => {
-            if (xhr.status < 300) resolve();
-            else {
-              const detail = xhr.responseText ? `: ${xhr.responseText.slice(0, 200)}` : '';
-              reject(new Error(`Upload failed (${xhr.status})${detail}`));
-            }
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`Upload failed (${xhr.status})`));
           };
           xhr.onerror = () => reject(new Error('Upload failed — network error'));
           xhr.send(file);
@@ -96,20 +161,31 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
     });
 
   const handleUpload = async () => {
-    if (!pendingFile) return;
+    if (!pendingFile || uploadingRef.current) return;
+    uploadingRef.current = true;
     setUploadStatus('uploading');
     setProgress(0);
     setError(null);
 
     try {
       await upload(pendingFile);
-      setPreviewUrl(null);
+      replacePreviewUrl(null);
       setPendingFile(null);
       setUploadStatus('idle');
       onUploadSuccess();
     } catch (err) {
-      setUploadStatus('error');
-      setError(err instanceof Error ? err.message : 'Upload failed — tap to retry');
+      console.error('Upload failed:', err);
+      if (err instanceof UploadRejectedError) {
+        // Retrying the same file would be refused again — only Retake is offered.
+        setUploadStatus('rejected');
+        setError(err.message);
+      } else {
+        // Keep pendingFile + preview so the guest can retry without re-taking the shot.
+        setUploadStatus('error');
+        setError(UPLOAD_FAILED_MESSAGE);
+      }
+    } finally {
+      uploadingRef.current = false;
     }
   };
 
@@ -121,8 +197,9 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   };
 
   const handleRetake = () => {
+    if (uploadingRef.current) return;
     setPendingFile(null);
-    setPreviewUrl(null);
+    replacePreviewUrl(null);
     setError(null);
     setUploadStatus('idle');
   };
@@ -171,7 +248,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               <button
                 type="button"
                 onClick={() => setConfirmingEnd(true)}
-                className="text-xs text-muted-foreground underline self-center"
+                className="min-h-11 px-3 text-xs text-muted-foreground underline self-center"
               >
                 I&apos;m done — end film early
               </button>
@@ -181,18 +258,18 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
                 <p className="text-xs text-muted-foreground">
                   End your film now with {shotCount} shot{shotCount === 1 ? '' : 's'}?
                 </p>
-                <div className="flex gap-3">
+                <div className="flex">
                   <button
                     type="button"
                     onClick={onEndSession}
-                    className="text-xs font-semibold text-amber-400 underline"
+                    className="min-h-11 px-1.5 text-xs font-semibold text-amber-400 underline"
                   >
                     Yes, end it
                   </button>
                   <button
                     type="button"
                     onClick={handleCancelEndSession}
-                    className="text-xs text-muted-foreground underline"
+                    className="min-h-11 px-1.5 text-xs text-muted-foreground underline"
                   >
                     Cancel
                   </button>
@@ -220,16 +297,31 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               />
             )}
             <div className="flex gap-3">
-              <Button
-                onClick={handleUpload}
-                disabled={uploadStatus === 'uploading'}
-                className="flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold"
-              >
-                {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
-              </Button>
-              <Button onClick={handleRetake} variant="outline">
-                Retake
-              </Button>
+              {/* No `disabled` here — iOS drops taps near disabled buttons. The
+                  handler's ref guard ignores taps while an upload is running. */}
+              {uploadStatus !== 'rejected' && (
+                <Button
+                  type="button"
+                  onClick={handleUpload}
+                  aria-busy={uploadStatus === 'uploading'}
+                  className={cn(
+                    'flex-1 bg-amber-400 text-black hover:bg-amber-300 font-semibold',
+                    uploadStatus === 'uploading' && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  {uploadStatus === 'uploading' ? `Uploading… ${progress}%` : 'Upload'}
+                </Button>
+              )}
+              {uploadStatus !== 'uploading' && (
+                <Button
+                  type="button"
+                  onClick={handleRetake}
+                  variant="outline"
+                  className={cn(uploadStatus === 'rejected' && 'flex-1')}
+                >
+                  Retake
+                </Button>
+              )}
             </div>
           </div>
         )}
@@ -239,7 +331,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         )}
 
         {error && (
-          <p className="text-destructive text-sm">{error}</p>
+          <p role="alert" className="text-destructive text-sm">{error}</p>
         )}
       </CardContent>
     </Card>

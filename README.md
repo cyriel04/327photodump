@@ -19,6 +19,12 @@ Each guest gets their own subfolder. The couple gets everything in one place.
 
 Shot count is tracked in `localStorage` so it survives page refreshes. No server-side session needed.
 
+### Names, sharing and limits
+
+- **A name is the guest's identity.** Guests who type the same name share one Drive folder and one "My Shots" gallery. If two phones create the same name at the exact same moment and Drive ends up with two same-name folders, the app treats them as one: new uploads always go to the oldest folder, "My Shots" lists files from all of them, and the feed shows the name once.
+- The feed hides guests whose name matches your own (your shots are under "My Shots").
+- Names are trimmed and limited to **50 characters**. Photos are limited to **50 MB** and videos to **100 MB**; the app checks before uploading and the server enforces the same limits (both read `src/lib/upload-limits.ts`).
+
 ---
 
 ## Tech
@@ -118,15 +124,25 @@ vercel --prod
 
 `/api/debug` checks each step of the auth chain — env vars, token exchange, folder read, folder write, and resumable session creation. Useful for diagnosing issues without digging into logs. The folder ID is partially redacted in the output.
 
+Because it creates and deletes a test folder and opens an upload session, the route is locked down in production: it returns `404` unless a `DEBUG_TOKEN` env var is set **and** the request passes it as a query param, e.g. `/api/debug?token=<your DEBUG_TOKEN>` (compared in constant time). Leave `DEBUG_TOKEN` unset to disable the route entirely in production. In local development (`npm run dev`) it's open with no token.
+
+```bash
+vercel env add DEBUG_TOKEN   # optional — only if you want /api/debug in production
+```
+
 ---
 
-## Tests
+## Tests and lint
 
 ```bash
 npm test
+npm run lint        # ESLint with eslint-config-next (core-web-vitals + typescript)
+npx tsc --noEmit
 ```
 
-22 tests across 6 suites covering the Drive library, API route, localStorage hook, and all three components.
+Jest suites cover the Drive library (with `googleapis` and `fetch` mocked — tests never call real Drive), every API route, request validation, the localStorage hook, and the UI components. Run `npm test` for the current count.
+
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, tests and build on every PR to `main`; the `build` check is required to merge.
 
 ---
 

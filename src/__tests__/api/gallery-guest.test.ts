@@ -40,11 +40,44 @@ describe('GET /api/gallery/guest', () => {
     expect(mockListGuestFiles).toHaveBeenCalledWith('Cyriel');
   });
 
-  it('returns 500 when listGuestFiles throws', async () => {
-    mockListGuestFiles.mockRejectedValue(new Error('Drive error'));
+  it('returns 500 without leaking the Drive error text', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockListGuestFiles.mockRejectedValue(new Error('Drive error secret-detail'));
 
     const res = await GET(makeRequest('?guestName=Cyriel'));
 
     expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'Failed to load guest files' });
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it('returns 400 when guestName is whitespace only', async () => {
+    mockListGuestFiles.mockClear();
+    const res = await GET(makeRequest('?guestName=%20%20'));
+    expect(res.status).toBe(400);
+    expect(mockListGuestFiles).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when guestName is over 50 chars', async () => {
+    mockListGuestFiles.mockClear();
+    const res = await GET(makeRequest(`?guestName=${'a'.repeat(51)}`));
+    expect(res.status).toBe(400);
+    expect(mockListGuestFiles).not.toHaveBeenCalled();
+  });
+
+  it('passes a trimmed name containing an apostrophe through', async () => {
+    mockListGuestFiles.mockReset().mockResolvedValue([]);
+    const res = await GET(makeRequest(`?guestName=${encodeURIComponent(" O'Brien ")}`));
+    expect(res.status).toBe(200);
+    expect(mockListGuestFiles).toHaveBeenCalledWith("O'Brien");
+  });
+
+  it('returns an empty list for an unknown guest', async () => {
+    mockListGuestFiles.mockReset().mockResolvedValue([]);
+    const res = await GET(makeRequest('?guestName=Stranger'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ files: [] });
   });
 });

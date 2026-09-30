@@ -26,6 +26,7 @@ describe('MyShotsGrid', () => {
     mockFetchOnce({ error: 'boom' }, false);
     render(<MyShotsGrid guestName="Cyriel" />);
     await waitFor(() => expect(screen.getByText(/couldn't load your shots/i)).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't load your shots/i);
   });
 
   it('renders a thumbnail per file and opens the lightbox on tap', async () => {
@@ -62,5 +63,20 @@ describe('MyShotsGrid', () => {
     });
     render(<MyShotsGrid guestName="Cyriel" />);
     await waitFor(() => expect(screen.getByText('🎥')).toBeInTheDocument());
+  });
+
+  it('gives each thumbnail a descriptive label and type="button"', async () => {
+    mockFetchOnce({
+      files: [
+        { id: 'a', mimeType: 'image/jpeg', thumbnailLink: 'https://a', viewUrl: 'https://va', createdTime: '2026-07-17T20:00:00Z' },
+        { id: 'b', mimeType: 'video/quicktime', thumbnailLink: null, viewUrl: 'https://vb', createdTime: '2026-07-17T20:01:00Z' },
+      ],
+    });
+    render(<MyShotsGrid guestName="Cyriel" />);
+
+    const photo = await screen.findByRole('button', { name: 'Open photo 1 of 2' });
+    const video = screen.getByRole('button', { name: 'Open video 2 of 2' });
+    expect(photo).toHaveAttribute('type', 'button');
+    expect(video).toHaveAttribute('type', 'button');
   });
 });

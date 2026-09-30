@@ -23,11 +23,16 @@ describe('GET /api/gallery/feed', () => {
     expect(body.guests).toHaveLength(1);
   });
 
-  it('returns 500 when listGuestsByActivity throws', async () => {
-    mockListGuestsByActivity.mockRejectedValue(new Error('Drive error'));
+  it('returns 500 without leaking the Drive error text', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockListGuestsByActivity.mockRejectedValue(new Error('Drive error secret-detail'));
 
     const res = await GET();
 
     expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body).toEqual({ error: 'Failed to load feed' });
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
   });
 });

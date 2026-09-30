@@ -84,4 +84,114 @@ describe('Lightbox', () => {
     expect(screen.getByText(/couldn't load this photo/i)).toBeInTheDocument();
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
+
+  it('is exposed as a modal dialog', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+  });
+
+  it('gives the close button type="button"', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(screen.getByLabelText('Close')).toHaveAttribute('type', 'button');
+  });
+
+  it('closes on Escape', async () => {
+    const onClose = jest.fn();
+    render(<Lightbox files={files} startIndex={0} onClose={onClose} />);
+    await userEvent.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('navigates with the arrow keys', async () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(document.querySelector('iframe')).toBeInTheDocument();
+
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(document.querySelector('iframe')).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('navigates with left/right swipes', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 300, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 100, clientY: 210 }] });
+    expect(document.querySelector('iframe')).toBeInTheDocument();
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 300, clientY: 190 }] });
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('ignores small touch movements (taps)', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const dialog = screen.getByRole('dialog');
+
+    fireEvent.touchStart(dialog, { touches: [{ clientX: 200, clientY: 200 }] });
+    fireEvent.touchEnd(dialog, { changedTouches: [{ clientX: 180, clientY: 200 }] });
+    expect(screen.getByRole('img', { name: 'Shot' })).toBeInTheDocument();
+  });
+
+  it('locks body scroll while open and restores it on close', () => {
+    document.body.style.overflow = 'auto';
+    const { unmount } = render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+    expect(document.body.style.overflow).toBe('auto');
+    document.body.style.overflow = '';
+  });
+
+  it('titles the video iframe for screen readers', () => {
+    render(<Lightbox files={files} startIndex={1} onClose={jest.fn()} />);
+    expect(document.querySelector('iframe')).toHaveAttribute('title', 'Video 2 of 2');
+  });
+
+  it('moves focus to the close button on open', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(screen.getByLabelText('Close')).toHaveFocus();
+  });
+
+  it('restores focus to the previously focused element on close', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { unmount } = render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(opener).not.toHaveFocus();
+    unmount();
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
+  it('keeps Tab focus inside the dialog', async () => {
+    const outside = document.createElement('button');
+    outside.textContent = 'outside';
+    document.body.appendChild(outside);
+    try {
+      render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+      const close = screen.getByLabelText('Close');
+      const next = screen.getByLabelText('Next');
+      expect(close).toHaveFocus();
+
+      await userEvent.tab();
+      expect(next).toHaveFocus();
+      await userEvent.tab();
+      expect(close).toHaveFocus();
+      await userEvent.tab({ shift: true });
+      expect(next).toHaveFocus();
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it('positions the close button with a plain offset (no safe-area env without viewport-fit)', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const close = screen.getByLabelText('Close');
+    expect(close).toHaveClass('top-4', 'right-4');
+    expect(close.className).not.toMatch(/safe-area/);
+  });
 });
