@@ -25,6 +25,8 @@ export function FeedScreen({ guestName }: Props) {
   // is what caused the old infinite refetch loop on error responses.
   const settledGuestsRef = useRef<Set<string>>(new Set());
   const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // Bumped by "Tap to retry" to re-run the guest fetch effect for the active guest.
+  const [retryToken, setRetryToken] = useState(0);
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
   useEffect(() => {
@@ -70,7 +72,18 @@ export function FeedScreen({ guestName }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [activeGuestName]);
+  }, [activeGuestName, retryToken]);
+
+  const retryActiveGuest = () => {
+    if (!activeGuestName) return;
+    settledGuestsRef.current.delete(activeGuestName);
+    setFailedGuests((prev) => {
+      const next = { ...prev };
+      delete next[activeGuestName];
+      return next;
+    });
+    setRetryToken((t) => t + 1);
+  };
 
   const goNext = () => setActiveIndex((i) => Math.min(i + 1, guests.length - 1));
   const goPrev = () => setActiveIndex((i) => Math.max(i - 1, 0));
@@ -85,7 +98,7 @@ export function FeedScreen({ guestName }: Props) {
   };
 
   if (status === 'loading') return <p className="text-sm text-muted-foreground">Loading feed…</p>;
-  if (status === 'error') return <p className="text-sm text-destructive">Couldn&apos;t load the feed.</p>;
+  if (status === 'error') return <p role="alert" className="text-sm text-destructive">Couldn&apos;t load the feed.</p>;
   if (status === 'empty') return <p className="text-sm text-muted-foreground">No shots from other guests yet.</p>;
 
   const activeFiles = activeGuestName ? filesByGuest[activeGuestName] ?? [] : [];
@@ -96,24 +109,33 @@ export function FeedScreen({ guestName }: Props) {
     <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="flex items-center justify-between mb-2">
         {activeIndex > 0 ? (
-          <Button onClick={goPrev} aria-label="Previous guest" variant="ghost" size="icon">
+          <Button type="button" onClick={goPrev} aria-label="Previous guest" variant="ghost" size="icon" className="size-11">
             <ChevronLeft />
           </Button>
         ) : (
-          <span className="size-8" aria-hidden="true" />
+          <span className="size-11" aria-hidden="true" />
         )}
         <p className="font-semibold">{activeGuest?.guestName}</p>
         {activeIndex < guests.length - 1 ? (
-          <Button onClick={goNext} aria-label="Next guest" variant="ghost" size="icon">
+          <Button type="button" onClick={goNext} aria-label="Next guest" variant="ghost" size="icon" className="size-11">
             <ChevronRight />
           </Button>
         ) : (
-          <span className="size-8" aria-hidden="true" />
+          <span className="size-11" aria-hidden="true" />
         )}
       </div>
 
       {activeFailed ? (
-        <p className="text-sm text-destructive">Couldn&apos;t load these shots.</p>
+        <div className="flex flex-col items-start gap-1">
+          <p role="alert" className="text-sm text-destructive">Couldn&apos;t load these shots.</p>
+          <button
+            type="button"
+            onClick={retryActiveGuest}
+            className="min-h-11 text-sm text-muted-foreground underline"
+          >
+            Tap to retry
+          </button>
+        </div>
       ) : activeLoading ? (
         <p className="text-sm text-muted-foreground">Loading shots…</p>
       ) : (

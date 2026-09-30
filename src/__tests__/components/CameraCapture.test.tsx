@@ -512,4 +512,57 @@ describe('CameraCapture', () => {
       jest.useRealTimers();
     }
   });
+
+  describe('uploaded file name', () => {
+    async function uploadedFileName(name: string, type: string) {
+      mockUploadSession();
+      mockXhr('success');
+      renderCamera();
+      const accept = type.startsWith('image/') ? 'image/*' : 'video/*';
+      const input = document.querySelector(`input[accept="${accept}"]`) as HTMLInputElement;
+      await userEvent.upload(input, new File(['data'], name, { type }));
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+      await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+      const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit];
+      return (JSON.parse(init.body as string) as { fileName: string }).fileName;
+    }
+
+    it('keeps a normal extension', async () => {
+      expect(await uploadedFileName('IMG_0001.HEIC', 'image/heic')).toMatch(/^photo-[\dT-]+\.HEIC$/);
+    });
+
+    it('falls back to jpg for a photo whose name has no dot', async () => {
+      expect(await uploadedFileName('image', 'image/jpeg')).toMatch(/^photo-[\dT-]+\.jpg$/);
+    });
+
+    it('falls back to mp4 for a video whose name has no dot', async () => {
+      expect(await uploadedFileName('capturedvideo', 'video/quicktime')).toMatch(/^video-[\dT-]+\.mp4$/);
+    });
+
+    it('falls back when the extension is too long or not alphanumeric', async () => {
+      expect(await uploadedFileName('shot.verylongext', 'image/jpeg')).toMatch(/\.jpg$/);
+    });
+
+    it('falls back when the extension contains odd characters', async () => {
+      expect(await uploadedFileName('shot.j-p', 'image/jpeg')).toMatch(/\.jpg$/);
+    });
+  });
+
+  it('announces errors to screen readers', async () => {
+    renderCamera();
+    const videoInput = document.querySelector('input[accept="video/*"]') as HTMLInputElement;
+    const big = new File(['x'], 'big.mp4', { type: 'video/mp4' });
+    Object.defineProperty(big, 'size', { value: 101 * 1024 * 1024 });
+    await userEvent.upload(videoInput, big);
+    expect(screen.getByRole('alert')).toHaveTextContent(/video too large/i);
+  });
+
+  it('gives the end-film-early controls at least a 44px touch target', async () => {
+    renderCamera();
+    const done = screen.getByRole('button', { name: /i'm done/i });
+    expect(done).toHaveClass('min-h-11');
+    await userEvent.click(done);
+    expect(screen.getByRole('button', { name: /yes, end it/i })).toHaveClass('min-h-11');
+    expect(screen.getByRole('button', { name: /cancel/i })).toHaveClass('min-h-11');
+  });
 });

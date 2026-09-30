@@ -20,6 +20,9 @@ function largeThumbnail(url: string): string {
   return url.replace(/=s\d+$/, '=s1600');
 }
 
+const FOCUSABLE =
+  'button:not([disabled]), [href], iframe, input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 // Minimum horizontal travel (px) before a touch counts as a swipe rather than a tap.
 const SWIPE_THRESHOLD = 50;
 
@@ -27,15 +30,61 @@ export function Lightbox({ files, startIndex, onClose }: Props) {
   const [index, setIndex] = useState(startIndex);
   const [erroredId, setErroredId] = useState<string | null>(null);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const file = files[index];
   const lastIndex = files.length - 1;
 
   const goNext = () => setIndex((i) => Math.min(i + 1, lastIndex));
   const goPrev = () => setIndex((i) => Math.max(i - 1, 0));
 
+  // Modal focus: move focus in on open, hand it back to whatever opened us on close.
   useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    return () => {
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+    };
+  }, []);
+
+  // If focus escapes the dialog anyway (e.g. tabbing out of the Drive iframe, whose
+  // key events never reach this window), pull it back to the close button.
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const dialog = dialogRef.current;
+      if (dialog && e.target instanceof Node && !dialog.contains(e.target)) {
+        closeButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('focusin', handleFocusIn);
+    return () => document.removeEventListener('focusin', handleFocusIn);
+  }, []);
+
+  useEffect(() => {
+    const trapTab = (e: KeyboardEvent) => {
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (!first || !last) {
+        e.preventDefault();
+        return;
+      }
+      const active = document.activeElement;
+      const outside = !(active instanceof Node) || !dialog.contains(active);
+      if (e.shiftKey && (active === first || outside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || outside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Tab') trapTab(e);
+      else if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowRight') setIndex((i) => Math.min(i + 1, lastIndex));
       else if (e.key === 'ArrowLeft') setIndex((i) => Math.max(i - 1, 0));
     };
@@ -80,6 +129,7 @@ export function Lightbox({ files, startIndex, onClose }: Props) {
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={`${isVideo ? 'Video' : 'Photo'} ${index + 1} of ${files.length}`}
@@ -88,10 +138,11 @@ export function Lightbox({ files, startIndex, onClose }: Props) {
       className="fixed inset-0 z-50 bg-black flex items-center justify-center"
     >
       <button
+        ref={closeButtonRef}
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 z-10 flex size-11 items-center justify-center text-white text-2xl"
+        className="absolute top-4 right-4 z-10 flex size-11 items-center justify-center text-white text-2xl"
       >
         ✕
       </button>
@@ -127,6 +178,7 @@ export function Lightbox({ files, startIndex, onClose }: Props) {
         <iframe
           key={file.id}
           src={`https://drive.google.com/file/d/${file.id}/preview`}
+          title={`Video ${index + 1} of ${files.length}`}
           allow="autoplay; fullscreen"
           allowFullScreen
           className="w-[90vw] h-[70vh] border-0"

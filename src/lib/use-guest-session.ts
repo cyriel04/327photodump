@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { MAX_GUEST_NAME_LENGTH } from "@/lib/upload-limits";
 
 const MAX_SHOTS = 30;
 
@@ -24,6 +25,22 @@ function lsSet(key: string, value: string): void {
 	}
 }
 
+function lsRemove(key: string): void {
+	try {
+		localStorage.removeItem(key);
+	} catch {
+		// Fall through — the in-memory copy below is cleared either way.
+	}
+	delete store[key];
+}
+
+// The API rejects names that are blank or longer than MAX_GUEST_NAME_LENGTH, so a
+// stored name like that would make every upload fail. Treat it as absent.
+function isUsableGuestName(name: string): boolean {
+	const trimmed = name.trim();
+	return trimmed.length > 0 && trimmed.length <= MAX_GUEST_NAME_LENGTH;
+}
+
 // A stored count can be corrupted (edited, truncated, written by an older build).
 // Anything that isn't a sane integer is treated as 0; values are clamped to MAX_SHOTS.
 function readShotCount(name: string): number {
@@ -38,6 +55,11 @@ export function useGuestSession() {
 
 	useEffect(() => {
 		const storedName = lsGet("guestName");
+		if (storedName !== null && !isUsableGuestName(storedName)) {
+			// Send the guest back to NameEntry instead of locking them out.
+			lsRemove("guestName");
+			return;
+		}
 		if (storedName) {
 			const count = readShotCount(storedName);
 			setGuestNameState(storedName);

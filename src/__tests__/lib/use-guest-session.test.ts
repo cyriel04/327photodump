@@ -129,4 +129,42 @@ describe('useGuestSession', () => {
       setSpy.mockRestore();
     }
   });
+
+  it('discards a stored name longer than the API allows so the guest re-enters it', () => {
+    const longName = 'a'.repeat(51);
+    localStorage.setItem('guestName', longName);
+    localStorage.setItem(`shotCount_${longName}`, '3');
+
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.guestName).toBeNull();
+    expect(result.current.shotCount).toBe(0);
+    expect(localStorage.getItem('guestName')).toBeNull();
+  });
+
+  it('keeps a stored name of exactly the maximum length', () => {
+    const name = 'a'.repeat(50);
+    localStorage.setItem('guestName', name);
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.guestName).toBe(name);
+  });
+
+  it('discards a whitespace-only stored name', () => {
+    localStorage.setItem('guestName', '   ');
+    const { result } = renderHook(() => useGuestSession());
+    expect(result.current.guestName).toBeNull();
+    expect(localStorage.getItem('guestName')).toBeNull();
+  });
+
+  it('discards an invalid stored name without crashing when localStorage throws on remove', () => {
+    localStorage.setItem('guestName', 'a'.repeat(60));
+    const removeSpy = jest.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    try {
+      const { result } = renderHook(() => useGuestSession());
+      expect(result.current.guestName).toBeNull();
+    } finally {
+      removeSpy.mockRestore();
+    }
+  });
 });

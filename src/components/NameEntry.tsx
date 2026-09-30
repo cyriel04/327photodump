@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { MAX_GUEST_NAME_LENGTH } from '@/lib/upload-limits';
 
 interface Props {
   onSubmit: (name: string) => void;
@@ -33,6 +34,7 @@ export function NameEntry({ onSubmit }: Props) {
             id="name"
             type="text"
             value={name}
+            maxLength={MAX_GUEST_NAME_LENGTH}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleStart()}
             placeholder="Your name or nickname"

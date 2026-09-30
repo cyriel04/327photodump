@@ -41,7 +41,7 @@ export function MyShotsGrid({ guestName }: Props) {
   }, [guestName]);
 
   if (status === 'loading') return <p className="text-sm text-muted-foreground">Loading your shots…</p>;
-  if (status === 'error') return <p className="text-sm text-destructive">Couldn&apos;t load your shots.</p>;
+  if (status === 'error') return <p role="alert" className="text-sm text-destructive">Couldn&apos;t load your shots.</p>;
   if (files.length === 0) return <p className="text-sm text-muted-foreground">No shots synced yet.</p>;
 
   return (

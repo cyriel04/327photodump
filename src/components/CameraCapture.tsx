@@ -5,11 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
-
-// Mirrors MAX_IMAGE_SIZE / MAX_VIDEO_SIZE in src/app/api/_lib/validation.ts —
-// keep in sync. Duplicated because server code must not be imported client-side.
-const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
-const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+import { MAX_IMAGE_SIZE, MAX_VIDEO_SIZE } from '@/lib/upload-limits';
 
 const IMAGE_TOO_LARGE_MESSAGE = 'Photo too large — try again';
 const VIDEO_TOO_LARGE_MESSAGE = 'Video too large — try a shorter clip';
@@ -39,6 +35,17 @@ async function rejectionMessage(res: Response): Promise<string> {
     // Non-JSON body (e.g. a proxy's 413 page) — fall through to the generic message.
   }
   return UPLOAD_REJECTED_MESSAGE;
+}
+
+// Only trust an extension that looks like one (e.g. "jpg", "HEIC", "mov"). Names
+// without a dot, or with junk after the last dot, fall back to a sensible default.
+const FILE_EXTENSION = /^[a-z0-9]{1,5}$/i;
+
+function fileExtension(file: File): string {
+  const dot = file.name.lastIndexOf('.');
+  const candidate = dot >= 0 ? file.name.slice(dot + 1) : '';
+  if (FILE_EXTENSION.test(candidate)) return candidate;
+  return file.type.startsWith('image/') ? 'jpg' : 'mp4';
 }
 
 interface Props {
@@ -115,7 +122,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
 
   const getFileName = (file: File): string => {
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const ext = file.name.split('.').pop() ?? (file.type.startsWith('image/') ? 'jpg' : 'mp4');
+    const ext = fileExtension(file);
     const prefix = file.type.startsWith('image/') ? 'photo' : 'video';
     return `${prefix}-${ts}.${ext}`;
   };
@@ -241,7 +248,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               <button
                 type="button"
                 onClick={() => setConfirmingEnd(true)}
-                className="text-xs text-muted-foreground underline self-center"
+                className="min-h-11 px-3 text-xs text-muted-foreground underline self-center"
               >
                 I&apos;m done — end film early
               </button>
@@ -251,18 +258,18 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
                 <p className="text-xs text-muted-foreground">
                   End your film now with {shotCount} shot{shotCount === 1 ? '' : 's'}?
                 </p>
-                <div className="flex gap-3">
+                <div className="flex">
                   <button
                     type="button"
                     onClick={onEndSession}
-                    className="text-xs font-semibold text-amber-400 underline"
+                    className="min-h-11 px-1.5 text-xs font-semibold text-amber-400 underline"
                   >
                     Yes, end it
                   </button>
                   <button
                     type="button"
                     onClick={handleCancelEndSession}
-                    className="text-xs text-muted-foreground underline"
+                    className="min-h-11 px-1.5 text-xs text-muted-foreground underline"
                   >
                     Cancel
                   </button>
@@ -324,7 +331,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         )}
 
         {error && (
-          <p className="text-destructive text-sm">{error}</p>
+          <p role="alert" className="text-destructive text-sm">{error}</p>
         )}
       </CardContent>
     </Card>

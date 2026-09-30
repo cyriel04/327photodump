@@ -26,6 +26,7 @@ describe('MyShotsGrid', () => {
     mockFetchOnce({ error: 'boom' }, false);
     render(<MyShotsGrid guestName="Cyriel" />);
     await waitFor(() => expect(screen.getByText(/couldn't load your shots/i)).toBeInTheDocument());
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't load your shots/i);
   });
 
   it('renders a thumbnail per file and opens the lightbox on tap', async () => {

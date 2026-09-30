@@ -295,4 +295,69 @@ describe('FeedScreen', () => {
     expect(screen.getByText('Sarah')).toBeInTheDocument();
     expect(screen.queryByText('Mike')).not.toBeInTheDocument();
   });
+
+  it('announces a failed feed load', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve({}) }) as jest.Mock;
+    render(<FeedScreen guestName="Cyriel" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't load the feed/i);
+  });
+
+  it('offers a retry after a failed guest fetch and refetches that guest', async () => {
+    let guestCalls = 0;
+    global.fetch = jest.fn().mockImplementation((url: string) => {
+      if (url === '/api/gallery/feed') {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              guests: [{ guestName: 'Sarah', coverThumbnail: null, mostRecentTime: '2026-07-17T20:00:00Z' }],
+            }),
+        });
+      }
+      guestCalls += 1;
+      if (guestCalls === 1) return Promise.reject(new TypeError('Load failed'));
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            files: [
+              { id: 'a', mimeType: 'image/jpeg', thumbnailLink: 'https://a', viewUrl: 'https://va', createdTime: '2026-07-17T20:00:00Z' },
+            ],
+          }),
+      });
+    }) as jest.Mock;
+
+    render(<FeedScreen guestName="Cyriel" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load these shots.");
+
+    const retry = screen.getByRole('button', { name: /tap to retry/i });
+    expect(retry).toHaveAttribute('type', 'button');
+    expect(retry).toHaveClass('min-h-11');
+
+    await userEvent.click(retry);
+
+    expect(await screen.findByRole('button', { name: 'Open photo 1 of 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(guestCalls).toBe(2);
+  });
+
+  it('gives the prev/next guest buttons and their spacers a 44px size', async () => {
+    mockFetchSequence([
+      {
+        guests: [
+          { guestName: 'Sarah', coverThumbnail: null, mostRecentTime: '2026-07-17T20:10:00Z' },
+          { guestName: 'Mike', coverThumbnail: null, mostRecentTime: '2026-07-17T20:00:00Z' },
+        ],
+      },
+      { files: [] },
+    ]);
+    const { container } = render(<FeedScreen guestName="Cyriel" />);
+    await waitFor(() => expect(screen.getByText('Sarah')).toBeInTheDocument());
+
+    expect(screen.getByLabelText('Next guest')).toHaveClass('size-11');
+    expect(container.querySelector('span[aria-hidden="true"]')).toHaveClass('size-11');
+
+    await userEvent.click(screen.getByLabelText('Next guest'));
+    expect(screen.getByLabelText('Previous guest')).toHaveClass('size-11');
+  });
 });

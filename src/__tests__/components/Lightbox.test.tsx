@@ -145,4 +145,53 @@ describe('Lightbox', () => {
     expect(document.body.style.overflow).toBe('auto');
     document.body.style.overflow = '';
   });
+
+  it('titles the video iframe for screen readers', () => {
+    render(<Lightbox files={files} startIndex={1} onClose={jest.fn()} />);
+    expect(document.querySelector('iframe')).toHaveAttribute('title', 'Video 2 of 2');
+  });
+
+  it('moves focus to the close button on open', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(screen.getByLabelText('Close')).toHaveFocus();
+  });
+
+  it('restores focus to the previously focused element on close', () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+    const { unmount } = render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    expect(opener).not.toHaveFocus();
+    unmount();
+    expect(opener).toHaveFocus();
+    opener.remove();
+  });
+
+  it('keeps Tab focus inside the dialog', async () => {
+    const outside = document.createElement('button');
+    outside.textContent = 'outside';
+    document.body.appendChild(outside);
+    try {
+      render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+      const close = screen.getByLabelText('Close');
+      const next = screen.getByLabelText('Next');
+      expect(close).toHaveFocus();
+
+      await userEvent.tab();
+      expect(next).toHaveFocus();
+      await userEvent.tab();
+      expect(close).toHaveFocus();
+      await userEvent.tab({ shift: true });
+      expect(next).toHaveFocus();
+    } finally {
+      outside.remove();
+    }
+  });
+
+  it('positions the close button with a plain offset (no safe-area env without viewport-fit)', () => {
+    render(<Lightbox files={files} startIndex={0} onClose={jest.fn()} />);
+    const close = screen.getByLabelText('Close');
+    expect(close).toHaveClass('top-4', 'right-4');
+    expect(close.className).not.toMatch(/safe-area/);
+  });
 });
