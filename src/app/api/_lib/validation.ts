@@ -1,10 +1,16 @@
 // Request validation shared by the API route handlers. Lives in a private
 // (`_`-prefixed) folder so Next.js never treats it as a route.
 
-export const MAX_GUEST_NAME_LENGTH = 50;
-export const MAX_FILE_NAME_LENGTH = 200;
-export const MAX_IMAGE_SIZE = 50 * 1024 * 1024;
-export const MAX_VIDEO_SIZE = 100 * 1024 * 1024;
+import { MAX_GUEST_NAME_LENGTH } from '@/lib/upload-limits';
+
+// Limits live in @/lib/upload-limits so the client pre-checks and the server
+// validation can never drift apart. Re-exported for the route handlers.
+export {
+  MAX_GUEST_NAME_LENGTH,
+  MAX_FILE_NAME_LENGTH,
+  MAX_IMAGE_SIZE,
+  MAX_VIDEO_SIZE,
+} from '@/lib/upload-limits';
 
 /** Returns the trimmed guest name, or null if it is not a 1–50 char string. */
 export function parseGuestName(value: unknown): string | null {

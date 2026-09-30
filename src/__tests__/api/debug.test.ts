@@ -17,6 +17,14 @@ const mockGetAuth = getAuth as jest.Mock;
 const env = process.env as Record<string, string | undefined>;
 const originalNodeEnv = env.NODE_ENV;
 
+function setOAuthEnv() {
+  // With credentials present, a request that got past the gate would reach
+  // getAuth(), so `not.toHaveBeenCalled()` genuinely proves the gate held.
+  env.GOOGLE_CLIENT_ID = 'test-client-id';
+  env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
+  env.GOOGLE_REFRESH_TOKEN = 'test-refresh-token';
+}
+
 function makeRequest(query = '') {
   return new NextRequest(`http://localhost/api/debug${query}`);
 }
@@ -38,14 +46,19 @@ afterAll(() => {
 describe('GET /api/debug', () => {
   it('returns 404 in production when DEBUG_TOKEN is not set', async () => {
     env.NODE_ENV = 'production';
+    setOAuthEnv();
     const res = await GET(makeRequest('?token='));
     expect(res.status).toBe(404);
     expect(mockGetAuth).not.toHaveBeenCalled();
+    const text = await res.text();
+    expect(text).not.toContain('test-refresh-token');
+    expect(text).not.toContain('root-folder-id');
   });
 
   it('returns 404 in production when the token is missing or wrong', async () => {
     env.NODE_ENV = 'production';
     env.DEBUG_TOKEN = 'correct-token';
+    setOAuthEnv();
 
     expect((await GET(makeRequest())).status).toBe(404);
     expect((await GET(makeRequest('?token=wrong-token'))).status).toBe(404);
@@ -63,6 +76,24 @@ describe('GET /api/debug', () => {
     const body = await res.json();
     expect(body.hasClientId).toBe('MISSING');
     expect(body.folderIdHint).toBe('root…1234');
+  });
+
+  it('reaches getAuth once past the gate when credentials are set (control for the gate tests)', async () => {
+    env.NODE_ENV = 'production';
+    env.DEBUG_TOKEN = 'correct-token';
+    setOAuthEnv();
+    mockGetAuth.mockImplementation(() => {
+      throw new Error('auth unavailable in test');
+    });
+
+    const res = await GET(makeRequest('?token=correct-token'));
+
+    expect(res.status).toBe(200);
+    expect(mockGetAuth).toHaveBeenCalled();
+    const text = await res.text();
+    expect(text).not.toContain('test-refresh-token');
+    expect(text).not.toContain('test-client-secret');
+    mockGetAuth.mockReset();
   });
 
   it('runs without a token outside production', async () => {

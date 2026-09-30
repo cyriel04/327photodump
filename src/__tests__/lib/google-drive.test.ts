@@ -15,6 +15,7 @@ import {
 jest.mock('googleapis', () => {
   const filesList = jest.fn();
   const filesCreate = jest.fn();
+  const filesDelete = jest.fn();
   const permissionsCreate = jest.fn();
   const getAccessToken = jest.fn();
   const setCredentials = jest.fn();
@@ -24,17 +25,18 @@ jest.mock('googleapis', () => {
         OAuth2: jest.fn().mockImplementation(() => ({ getAccessToken, setCredentials })),
       },
       drive: jest.fn().mockReturnValue({
-        files: { list: filesList, create: filesCreate },
+        files: { list: filesList, create: filesCreate, delete: filesDelete },
         permissions: { create: permissionsCreate },
       }),
     },
-    __mockFns: { filesList, filesCreate, permissionsCreate, getAccessToken, setCredentials },
+    __mockFns: { filesList, filesCreate, filesDelete, permissionsCreate, getAccessToken, setCredentials },
   };
 });
 
 const { __mockFns } = jest.requireMock('googleapis');
 const mockFilesList: jest.Mock = __mockFns.filesList;
 const mockFilesCreate: jest.Mock = __mockFns.filesCreate;
+const mockFilesDelete: jest.Mock = __mockFns.filesDelete;
 const mockPermissionsCreate: jest.Mock = __mockFns.permissionsCreate;
 const mockGetAccessToken: jest.Mock = __mockFns.getAccessToken;
 
@@ -83,6 +85,58 @@ describe('findGuestFolder', () => {
     const { q } = mockFilesList.mock.calls[0][0];
     expect(q).toContain("name='O\\'Brien'");
     expect(q).not.toContain("name='O'Brien'");
+  });
+});
+
+describe('findGuestFolder ordering', () => {
+  it('orders by createdTime (oldest first) so the same folder always wins', async () => {
+    mockFilesList.mockResolvedValue({ data: { files: [{ id: 'oldest-folder-id' }] } });
+
+    await findGuestFolder('Cyriel');
+
+    expect(mockFilesList.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ orderBy: 'createdTime', pageSize: 1 })
+    );
+  });
+});
+
+describe('findOrCreateGuestFolder permission failure', () => {
+  it('deletes the just-created folder and rethrows when permissions.create fails', async () => {
+    mockFilesList.mockResolvedValue({ data: { files: [] } });
+    mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
+    mockPermissionsCreate.mockRejectedValueOnce(new Error('permission denied'));
+    mockFilesDelete.mockResolvedValue({});
+
+    await expect(findOrCreateGuestFolder('Cyriel')).rejects.toThrow('permission denied');
+    expect(mockFilesDelete).toHaveBeenCalledWith({ fileId: 'new-folder-id' });
+  });
+
+  it('still rethrows the permission error and logs when the cleanup delete also fails', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFilesList.mockResolvedValue({ data: { files: [] } });
+    mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
+    mockPermissionsCreate.mockRejectedValueOnce(new Error('permission denied'));
+    mockFilesDelete.mockRejectedValueOnce(new Error('delete failed'));
+
+    await expect(findOrCreateGuestFolder("O'Brien")).rejects.toThrow('permission denied');
+    expect(mockFilesDelete).toHaveBeenCalledWith({ fileId: 'new-folder-id' });
+    expect(errorSpy).toHaveBeenCalled();
+    const logged = errorSpy.mock.calls.flat().map(String).join(' ');
+    expect(logged).toContain('delete failed');
+    expect(logged).not.toContain('test-refresh-token');
+    expect(logged).not.toContain('test-client-secret');
+    expect(logged).not.toContain('root-folder-id');
+    errorSpy.mockRestore();
+  });
+
+  it('does not delete anything when the permission succeeds', async () => {
+    mockFilesList.mockResolvedValue({ data: { files: [] } });
+    mockFilesCreate.mockResolvedValue({ data: { id: 'new-folder-id' } });
+    mockPermissionsCreate.mockResolvedValue({});
+
+    await findOrCreateGuestFolder('Cyriel');
+
+    expect(mockFilesDelete).not.toHaveBeenCalled();
   });
 });
 
@@ -225,6 +279,85 @@ describe('listGuestFiles', () => {
   });
 });
 
+describe('listGuestFiles across duplicate folders and pages', () => {
+  const file = (id: string, parent: string, createdTime: string) => ({
+    id,
+    parents: [parent],
+    mimeType: 'image/jpeg',
+    thumbnailLink: `https://thumb/${id}`,
+    webContentLink: `https://drive.google.com/uc?id=${id}`,
+    createdTime,
+  });
+
+  it('lists every same-name folder under the root with an escaped name', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'folder-1' }, { id: 'folder-2' }] } })
+      .mockResolvedValueOnce({ data: { files: [] } });
+
+    await listGuestFiles("O'Brien");
+
+    const folderQuery = mockFilesList.mock.calls[0][0];
+    expect(folderQuery.q).toContain("name='O\\'Brien'");
+    expect(folderQuery.q).toContain("'root-folder-id' in parents");
+    expect(folderQuery.pageSize).toBeGreaterThan(1);
+    expect(folderQuery.fields).toContain('nextPageToken');
+  });
+
+  it('queries files in all same-name folders with one batched list, newest first', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'folder-1' }, { id: 'folder-2' }] } })
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            file('f-new', 'folder-2', '2026-07-17T21:00:00Z'),
+            file('f-old', 'folder-1', '2026-07-17T20:00:00Z'),
+          ],
+        },
+      });
+
+    const result = await listGuestFiles('Cyriel');
+
+    expect(mockFilesList).toHaveBeenCalledTimes(2);
+    const { q, orderBy } = mockFilesList.mock.calls[1][0];
+    expect(q).toContain("'folder-1' in parents or 'folder-2' in parents");
+    expect(orderBy).toBe('createdTime desc');
+    expect(result.map((f) => f.id)).toEqual(['f-new', 'f-old']);
+  });
+
+  it('follows nextPageToken so guests with more than one page of files lose nothing', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'folder-1' }] } })
+      .mockResolvedValueOnce({
+        data: { files: [file('f-2', 'folder-1', '2026-07-17T21:00:00Z')], nextPageToken: 'page-2' },
+      })
+      .mockResolvedValueOnce({ data: { files: [file('f-1', 'folder-1', '2026-07-17T20:00:00Z')] } });
+
+    const result = await listGuestFiles('Cyriel');
+
+    expect(mockFilesList.mock.calls[2][0]).toEqual(expect.objectContaining({ pageToken: 'page-2' }));
+    expect(result.map((f) => f.id)).toEqual(['f-2', 'f-1']);
+  });
+
+  it('sorts newest first even if pages come back out of order', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({ data: { files: [{ id: 'folder-1' }] } })
+      .mockResolvedValueOnce({
+        data: { files: [file('f-old', 'folder-1', '2026-07-17T19:00:00Z')], nextPageToken: 'page-2' },
+      })
+      .mockResolvedValueOnce({ data: { files: [file('f-new', 'folder-1', '2026-07-17T23:00:00Z')] } });
+
+    const result = await listGuestFiles('Cyriel');
+
+    expect(result.map((f) => f.id)).toEqual(['f-new', 'f-old']);
+  });
+
+  it('propagates Drive errors', async () => {
+    mockFilesList.mockRejectedValueOnce(new Error('Drive down'));
+
+    await expect(listGuestFiles('Cyriel')).rejects.toThrow('Drive down');
+  });
+});
+
 describe('listGuestsByActivity', () => {
   it('returns guests ordered by most recent upload, most recent first', async () => {
     mockFilesList
@@ -350,20 +483,93 @@ describe('listGuestsByActivity pagination', () => {
     ]);
   });
 
-  it('stops paging a chunk once every folder in it has a cover', async () => {
+  it('follows every files page even when a folder in the chunk is empty', async () => {
+    // folder-c has no files (created before its first upload finished), so no
+    // early exit is possible: an older guest may only appear on a later page.
     mockFilesList
-      .mockResolvedValueOnce({ data: { files: [{ id: 'folder-a', name: 'Sarah' }] } })
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            { id: 'folder-a', name: 'Sarah' },
+            { id: 'folder-c', name: 'EmptyGuest' },
+          ],
+        },
+      })
       .mockResolvedValueOnce({
         data: {
           files: [{ parents: ['folder-a'], thumbnailLink: 'https://thumb-a', createdTime: '2026-07-17T20:05:00Z' }],
-          nextPageToken: 'unneeded-page',
+          nextPageToken: 'files-page-2',
+        },
+      })
+      .mockResolvedValueOnce({ data: { files: [] } });
+
+    const result = await listGuestsByActivity();
+
+    expect(mockFilesList).toHaveBeenCalledTimes(3);
+    expect(mockFilesList.mock.calls[2][0]).toEqual(expect.objectContaining({ pageToken: 'files-page-2' }));
+    expect(result).toEqual([
+      { guestName: 'Sarah', coverThumbnail: 'https://thumb-a', mostRecentTime: '2026-07-17T20:05:00Z' },
+    ]);
+  });
+});
+
+describe('listGuestsByActivity duplicate folder names', () => {
+  it('merges same-name folders into one entry with the most recent cover', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            { id: 'folder-a1', name: 'Sarah' },
+            { id: 'folder-a2', name: 'Sarah' },
+            { id: 'folder-b', name: 'Mike' },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            { parents: ['folder-a2'], thumbnailLink: 'https://thumb-a2', createdTime: '2026-07-17T21:00:00Z' },
+            { parents: ['folder-b'], thumbnailLink: 'https://thumb-b', createdTime: '2026-07-17T20:30:00Z' },
+            { parents: ['folder-a1'], thumbnailLink: 'https://thumb-a1', createdTime: '2026-07-17T20:00:00Z' },
+          ],
         },
       });
 
     const result = await listGuestsByActivity();
 
-    expect(mockFilesList).toHaveBeenCalledTimes(2);
-    expect(result).toHaveLength(1);
+    expect(result).toEqual([
+      { guestName: 'Sarah', coverThumbnail: 'https://thumb-a2', mostRecentTime: '2026-07-17T21:00:00Z' },
+      { guestName: 'Mike', coverThumbnail: 'https://thumb-b', mostRecentTime: '2026-07-17T20:30:00Z' },
+    ]);
+  });
+
+  it('merges same-name folders even when their files arrive out of order across pages', async () => {
+    mockFilesList
+      .mockResolvedValueOnce({
+        data: {
+          files: [
+            { id: 'folder-a1', name: 'Sarah' },
+            { id: 'folder-a2', name: 'Sarah' },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          files: [{ parents: ['folder-a1'], thumbnailLink: 'https://old', createdTime: '2026-07-17T20:00:00Z' }],
+          nextPageToken: 'p2',
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          files: [{ parents: ['folder-a2'], thumbnailLink: 'https://new', createdTime: '2026-07-17T22:00:00Z' }],
+        },
+      });
+
+    const result = await listGuestsByActivity();
+
+    expect(result).toEqual([
+      { guestName: 'Sarah', coverThumbnail: 'https://new', mostRecentTime: '2026-07-17T22:00:00Z' },
+    ]);
   });
 });
 
