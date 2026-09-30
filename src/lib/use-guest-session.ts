@@ -62,6 +62,9 @@ export function useGuestSession() {
 		}
 		if (storedName) {
 			const count = readShotCount(storedName);
+			// localStorage is only readable after hydration; reading it in a useState
+			// initialiser would make the server and client render differently.
+			// eslint-disable-next-line react-hooks/set-state-in-effect
 			setGuestNameState(storedName);
 			setShotCount(count);
 		}

@@ -10,16 +10,18 @@ interface Props {
   guestName: string;
 }
 
-type Status = 'loading' | 'ready' | 'error';
+type Result =
+  | { guestName: string; status: 'ready'; files: GalleryFile[] }
+  | { guestName: string; status: 'error' };
 
 export function MyShotsGrid({ guestName }: Props) {
-  const [status, setStatus] = useState<Status>('loading');
-  const [files, setFiles] = useState<GalleryFile[]>([]);
+  // Results are tagged with the guest they belong to, so a stale result for a
+  // previous name reads as "loading" without resetting state inside the effect.
+  const [result, setResult] = useState<Result | null>(null);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setStatus('loading');
 
     fetch(`/api/gallery/guest?guestName=${encodeURIComponent(guestName)}`)
       .then((res) => {
@@ -28,17 +30,20 @@ export function MyShotsGrid({ guestName }: Props) {
       })
       .then((body: { files: GalleryFile[] }) => {
         if (cancelled) return;
-        setFiles(body.files);
-        setStatus('ready');
+        setResult({ guestName, status: 'ready', files: body.files });
       })
       .catch(() => {
-        if (!cancelled) setStatus('error');
+        if (!cancelled) setResult({ guestName, status: 'error' });
       });
 
     return () => {
       cancelled = true;
     };
   }, [guestName]);
+
+  const current = result?.guestName === guestName ? result : null;
+  const status = current?.status ?? 'loading';
+  const files = current?.status === 'ready' ? current.files : [];
 
   if (status === 'loading') return <p className="text-sm text-muted-foreground">Loading your shots…</p>;
   if (status === 'error') return <p role="alert" className="text-sm text-destructive">Couldn&apos;t load your shots.</p>;
