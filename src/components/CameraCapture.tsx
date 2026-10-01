@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { cn } from '@/lib/utils';
+import { cn, ACCESS_EXPIRED_MESSAGE } from '@/lib/utils';
 import { MAX_IMAGE_SIZE, MAX_VIDEO_SIZE } from '@/lib/upload-limits';
 
 const IMAGE_TOO_LARGE_MESSAGE = 'Photo too large — try again';
@@ -13,7 +13,10 @@ const VIDEO_TOO_LARGE_MESSAGE = 'Video too large — try a shorter clip';
 // them and can leak internal details.
 // Transient failures (5xx, network, Drive PUT): the same file can be retried.
 const UPLOAD_FAILED_MESSAGE = 'Upload failed — check your connection and tap Upload to retry';
-// Our API rejected the file itself (4xx): retrying the same file won't help.
+// 401: the guest_access cookie is missing/expired. The file is fine — after
+// re-scanning the venue QR (e.g. in another tab) the same shot can be retried.
+const UPLOAD_ACCESS_EXPIRED_MESSAGE = `${ACCESS_EXPIRED_MESSAGE}, then tap Upload to retry`;
+// Our API rejected the file itself (other 4xx): retrying the same file won't help.
 const UPLOAD_REJECTED_MESSAGE = "This file can't be uploaded — try retaking it";
 
 // Maps known `error` strings from POST /api/upload-session 400s to guest-facing text.
@@ -24,6 +27,9 @@ const REJECTION_MESSAGES: Record<string, string> = {
 
 /** The API refused this file (4xx) — carries the guest-facing message. */
 class UploadRejectedError extends Error {}
+
+/** The API returned 401 — the guest's access cookie is missing or expired. */
+class AccessExpiredError extends Error {}
 
 async function rejectionMessage(res: Response): Promise<string> {
   try {
@@ -123,6 +129,7 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
         body: JSON.stringify({ guestName, fileName, mimeType: file.type, fileSize: file.size }),
       })
         .then(async (res) => {
+          if (res.status === 401) throw new AccessExpiredError('Upload session unauthorized (401)');
           if (res.status >= 400 && res.status < 500) {
             throw new UploadRejectedError(await rejectionMessage(res));
           }
@@ -161,7 +168,11 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
       onUploadSuccess();
     } catch (err) {
       console.error('Upload failed:', err);
-      if (err instanceof UploadRejectedError) {
+      if (err instanceof AccessExpiredError) {
+        // Not the file's fault — keep pendingFile + preview and leave Upload available.
+        setUploadStatus('error');
+        setError(UPLOAD_ACCESS_EXPIRED_MESSAGE);
+      } else if (err instanceof UploadRejectedError) {
         // Retrying the same file would be refused again — only Retake is offered.
         setUploadStatus('rejected');
         setError(err.message);

@@ -302,6 +302,17 @@ describe('FeedScreen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/couldn't load the feed/i);
   });
 
+  it('tells the guest to re-scan the QR code when the feed returns 401', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: 'Unauthorized' }),
+    }) as jest.Mock;
+    render(<FeedScreen guestName="Cyriel" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/scan the QR code at the venue again/i);
+    expect(screen.queryByText(/couldn't load the feed/i)).not.toBeInTheDocument();
+  });
+
   it('offers a retry after a failed guest fetch and refetches that guest', async () => {
     let guestCalls = 0;
     global.fetch = jest.fn().mockImplementation((url: string) => {

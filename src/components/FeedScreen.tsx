@@ -6,13 +6,13 @@ import { GalleryFile, GalleryFeedEntry } from '@/types';
 import { Lightbox } from '@/components/Lightbox';
 import { Thumbnail } from '@/components/Thumbnail';
 import { Button } from '@/components/ui/button';
-import { thumbnailLabel } from '@/lib/utils';
+import { thumbnailLabel, ACCESS_EXPIRED_MESSAGE } from '@/lib/utils';
 
 interface Props {
   guestName: string;
 }
 
-type FeedStatus = 'loading' | 'ready' | 'error' | 'empty';
+type FeedStatus = 'loading' | 'ready' | 'error' | 'unauthorized' | 'empty';
 
 export function FeedScreen({ guestName }: Props) {
   const [status, setStatus] = useState<FeedStatus>('loading');
@@ -32,10 +32,15 @@ export function FeedScreen({ guestName }: Props) {
   useEffect(() => {
     fetch('/api/gallery/feed')
       .then((res) => {
+        if (res.status === 401) return null;
         if (!res.ok) throw new Error('Failed to load feed');
         return res.json();
       })
-      .then((body: { guests: GalleryFeedEntry[] }) => {
+      .then((body: { guests: GalleryFeedEntry[] } | null) => {
+        if (body === null) {
+          setStatus('unauthorized');
+          return;
+        }
         const otherGuests = body.guests.filter((g) => g.guestName !== guestName);
         setGuests(otherGuests);
         setStatus(otherGuests.length === 0 ? 'empty' : 'ready');
@@ -99,6 +104,7 @@ export function FeedScreen({ guestName }: Props) {
 
   if (status === 'loading') return <p className="text-sm text-muted-foreground">Loading feed…</p>;
   if (status === 'error') return <p role="alert" className="text-sm text-destructive">Couldn&apos;t load the feed.</p>;
+  if (status === 'unauthorized') return <p role="alert" className="text-sm text-destructive">{ACCESS_EXPIRED_MESSAGE}</p>;
   if (status === 'empty') return <p className="text-sm text-muted-foreground">No shots from other guests yet.</p>;
 
   const activeFiles = activeGuestName ? filesByGuest[activeGuestName] ?? [] : [];

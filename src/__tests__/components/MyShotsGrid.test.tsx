@@ -29,6 +29,17 @@ describe('MyShotsGrid', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/couldn't load your shots/i);
   });
 
+  it('tells the guest to re-scan the QR code when their access has expired (401)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ error: 'Unauthorized' }),
+    }) as jest.Mock;
+    render(<MyShotsGrid guestName="Cyriel" />);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/scan the QR code at the venue again/i);
+    expect(screen.queryByText(/couldn't load your shots/i)).not.toBeInTheDocument();
+  });
+
   it('renders a thumbnail per file and opens the lightbox on tap', async () => {
     mockFetchOnce({
       files: [

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { GalleryFile } from '@/types';
 import { Lightbox } from '@/components/Lightbox';
 import { Thumbnail } from '@/components/Thumbnail';
-import { thumbnailLabel } from '@/lib/utils';
+import { thumbnailLabel, ACCESS_EXPIRED_MESSAGE } from '@/lib/utils';
 
 interface Props {
   guestName: string;
@@ -12,7 +12,7 @@ interface Props {
 
 type Result =
   | { guestName: string; status: 'ready'; files: GalleryFile[] }
-  | { guestName: string; status: 'error' };
+  | { guestName: string; status: 'error' | 'unauthorized' };
 
 export function MyShotsGrid({ guestName }: Props) {
   // Results are tagged with the guest they belong to, so a stale result for a
@@ -25,11 +25,16 @@ export function MyShotsGrid({ guestName }: Props) {
 
     fetch(`/api/gallery/guest?guestName=${encodeURIComponent(guestName)}`)
       .then((res) => {
+        if (res.status === 401) return null;
         if (!res.ok) throw new Error('Failed to load shots');
         return res.json();
       })
-      .then((body: { files: GalleryFile[] }) => {
+      .then((body: { files: GalleryFile[] } | null) => {
         if (cancelled) return;
+        if (body === null) {
+          setResult({ guestName, status: 'unauthorized' });
+          return;
+        }
         setResult({ guestName, status: 'ready', files: body.files });
       })
       .catch(() => {
@@ -47,6 +52,7 @@ export function MyShotsGrid({ guestName }: Props) {
 
   if (status === 'loading') return <p className="text-sm text-muted-foreground">Loading your shots…</p>;
   if (status === 'error') return <p role="alert" className="text-sm text-destructive">Couldn&apos;t load your shots.</p>;
+  if (status === 'unauthorized') return <p role="alert" className="text-sm text-destructive">{ACCESS_EXPIRED_MESSAGE}</p>;
   if (files.length === 0) return <p className="text-sm text-muted-foreground">No shots synced yet.</p>;
 
   return (
