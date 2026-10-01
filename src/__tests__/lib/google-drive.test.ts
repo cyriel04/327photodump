@@ -8,6 +8,8 @@ import {
   createResumableUploadSession,
   listGuestFiles,
   listGuestsByActivity,
+  getAuth,
+  resetAuthClient,
 } from '@/lib/google-drive';
 
 // Mock functions are created inside the factory to avoid hoisting issues.
@@ -19,18 +21,19 @@ jest.mock('googleapis', () => {
   const filesUpdate = jest.fn();
   const permissionsCreate = jest.fn();
   const getAccessToken = jest.fn();
+  const refreshAccessToken = jest.fn();
   const setCredentials = jest.fn();
   return {
     google: {
       auth: {
-        OAuth2: jest.fn().mockImplementation(() => ({ getAccessToken, setCredentials })),
+        OAuth2: jest.fn().mockImplementation(() => ({ getAccessToken, refreshAccessToken, setCredentials })),
       },
       drive: jest.fn().mockReturnValue({
         files: { list: filesList, create: filesCreate, delete: filesDelete, update: filesUpdate },
         permissions: { create: permissionsCreate },
       }),
     },
-    __mockFns: { filesList, filesCreate, filesDelete, filesUpdate, permissionsCreate, getAccessToken, setCredentials },
+    __mockFns: { filesList, filesCreate, filesDelete, filesUpdate, permissionsCreate, getAccessToken, refreshAccessToken, setCredentials },
   };
 });
 
@@ -41,6 +44,17 @@ const mockFilesDelete: jest.Mock = __mockFns.filesDelete;
 const mockFilesUpdate: jest.Mock = __mockFns.filesUpdate;
 const mockPermissionsCreate: jest.Mock = __mockFns.permissionsCreate;
 const mockGetAccessToken: jest.Mock = __mockFns.getAccessToken;
+const mockSetCredentials: jest.Mock = __mockFns.setCredentials;
+const mockRefreshAccessToken: jest.Mock = __mockFns.refreshAccessToken;
+const { google: mockGoogle } = jest.requireMock('googleapis');
+const mockOAuth2: jest.Mock = mockGoogle.auth.OAuth2;
+
+// Many tests replace global.fetch; put the real one back so nothing leaks
+// between tests or into other suites sharing this worker.
+const originalFetch = global.fetch;
+afterEach(() => {
+  global.fetch = originalFetch;
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -48,6 +62,55 @@ beforeEach(() => {
   process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret';
   process.env.GOOGLE_REFRESH_TOKEN = 'test-refresh-token';
   process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID = 'root-folder-id';
+});
+
+describe('getAuth', () => {
+  beforeEach(() => {
+    resetAuthClient();
+  });
+
+  it('reuses one OAuth2 client across calls so the access token cache survives', () => {
+    const first = getAuth();
+    const second = getAuth();
+
+    expect(second).toBe(first);
+    expect(mockOAuth2).toHaveBeenCalledTimes(1);
+    expect(mockOAuth2).toHaveBeenCalledWith('test-client-id', 'test-client-secret', 'urn:ietf:wg:oauth:2.0:oob');
+    expect(mockSetCredentials).toHaveBeenCalledTimes(1);
+    expect(mockSetCredentials).toHaveBeenCalledWith({ refresh_token: 'test-refresh-token' });
+  });
+
+  it('builds a new client when the credentials in the environment change', () => {
+    const first = getAuth();
+    process.env.GOOGLE_REFRESH_TOKEN = 'rotated-refresh-token';
+
+    const second = getAuth();
+
+    expect(second).not.toBe(first);
+    expect(mockOAuth2).toHaveBeenCalledTimes(2);
+    expect(mockSetCredentials).toHaveBeenLastCalledWith({ refresh_token: 'rotated-refresh-token' });
+  });
+
+  it('builds a new client after resetAuthClient', () => {
+    const first = getAuth();
+    resetAuthClient();
+    expect(getAuth()).not.toBe(first);
+    expect(mockOAuth2).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares the client across Drive helpers', async () => {
+    mockFilesList.mockResolvedValue({ data: { files: [] } });
+    mockGetAccessToken.mockResolvedValue({ token: 'access-token' });
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 200, headers: { Location: 'https://upload.googleapis.com/x' } }));
+
+    await findGuestFolder('Cyriel');
+    await listGuestFiles('Cyriel');
+    await createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10);
+
+    expect(mockOAuth2).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('escapeDriveQueryValue', () => {
@@ -599,6 +662,126 @@ describe('createResumableUploadSession', () => {
       expect.stringContaining('uploadType=resumable'),
       expect.objectContaining({ method: 'POST' })
     );
+    expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  function sessionResponse(status: number, location: string | null = null) {
+    return new Response(status === 200 ? null : 'nope', {
+      status,
+      headers: location ? { Location: location } : {},
+    });
+  }
+
+  it('on a 401 refreshes the token and retries once with the same Origin and body', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'revoked-token' });
+    mockRefreshAccessToken.mockResolvedValue({ credentials: { access_token: 'fresh-token' } });
+    const mockFetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionResponse(401))
+      .mockResolvedValueOnce(sessionResponse(200, 'https://upload.googleapis.com/retried'));
+    global.fetch = mockFetch;
+
+    const result = await createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10, 'https://app.example');
+
+    expect(result).toBe('https://upload.googleapis.com/retried');
+    expect(mockRefreshAccessToken).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [firstUrl, first] = mockFetch.mock.calls[0];
+    const [secondUrl, second] = mockFetch.mock.calls[1];
+    expect(secondUrl).toBe(firstUrl);
+    expect(first.headers.Authorization).toBe('Bearer revoked-token');
+    expect(second.headers.Authorization).toBe('Bearer fresh-token');
+    expect(second.headers.Origin).toBe('https://app.example');
+    expect(second.method).toBe('POST');
+    expect(second.body).toBe(first.body);
+    expect(JSON.parse(second.body)).toEqual({ name: 'p.jpg', parents: ['folder-id'] });
+    expect({ ...second.headers, Authorization: 'x' }).toEqual({ ...first.headers, Authorization: 'x' });
+  });
+
+  it('does not retry a second 401 and throws without leaking the token', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'revoked-token' });
+    mockRefreshAccessToken.mockResolvedValue({ credentials: { access_token: 'fresh-token' } });
+    const mockFetch = jest.fn().mockImplementation(async () => sessionResponse(401));
+    global.fetch = mockFetch;
+
+    const error = await createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10).catch((e) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain('401');
+    expect(error.message).not.toContain('fresh-token');
+    expect(error.message).not.toContain('revoked-token');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockRefreshAccessToken).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([403, 500])('does not refresh or re-send the POST on a %i', async (status) => {
+    mockGetAccessToken.mockResolvedValue({ token: 'access-token' });
+    const mockFetch = jest.fn().mockImplementation(async () => sessionResponse(status));
+    global.fetch = mockFetch;
+
+    await expect(createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10)).rejects.toThrow(
+      `(${status})`,
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('does not re-send the POST when the network request itself fails', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'access-token' });
+    const mockFetch = jest.fn().mockRejectedValue(new TypeError('fetch failed'));
+    global.fetch = mockFetch;
+
+    await expect(createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10)).rejects.toThrow('fetch failed');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('propagates a failed refresh (e.g. invalid_grant) without sending a second POST', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'revoked-token' });
+    mockRefreshAccessToken.mockRejectedValue(new Error('invalid_grant'));
+    const mockFetch = jest.fn().mockImplementation(async () => sessionResponse(401));
+    global.fetch = mockFetch;
+
+    await expect(createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10)).rejects.toThrow('invalid_grant');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases the discarded 401 body before retrying', async () => {
+    mockGetAccessToken.mockResolvedValue({ token: 'revoked-token' });
+    mockRefreshAccessToken.mockResolvedValue({ credentials: { access_token: 'fresh-token' } });
+    const unauthorized = sessionResponse(401);
+    global.fetch = jest
+      .fn()
+      .mockResolvedValueOnce(unauthorized)
+      .mockResolvedValueOnce(sessionResponse(200, 'https://upload.googleapis.com/retried'));
+
+    await createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10);
+
+    expect(unauthorized.bodyUsed || unauthorized.body?.locked).toBeTruthy();
+  });
+
+  it('on a 401 reuses a token another request already refreshed instead of exchanging again', async () => {
+    resetAuthClient();
+    const client = getAuth() as unknown as { credentials?: { access_token?: string } };
+    mockGetAccessToken.mockImplementation(async () => {
+      // Simulate a concurrent request finishing its refresh after we read the old token.
+      client.credentials = { access_token: 'refreshed-elsewhere' };
+      return { token: 'revoked-token' };
+    });
+    const mockFetch = jest
+      .fn()
+      .mockResolvedValueOnce(sessionResponse(401))
+      .mockResolvedValueOnce(sessionResponse(200, 'https://upload.googleapis.com/retried'));
+    global.fetch = mockFetch;
+
+    try {
+      const result = await createResumableUploadSession('folder-id', 'p.jpg', 'image/jpeg', 10);
+      expect(result).toBe('https://upload.googleapis.com/retried');
+      expect(mockRefreshAccessToken).not.toHaveBeenCalled();
+      expect(mockFetch.mock.calls[1][1].headers.Authorization).toBe('Bearer refreshed-elsewhere');
+    } finally {
+      resetAuthClient();
+    }
   });
 
   it('throws when Drive does not return a Location header', async () => {
