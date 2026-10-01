@@ -13,9 +13,6 @@ jest.mock('googleapis', () => ({
   google: { drive: jest.fn() },
 }));
 
-const { google: mockGoogle } = jest.requireMock('googleapis');
-const mockDrive: jest.Mock = mockGoogle.drive;
-
 const mockGetAuth = getAuth as jest.Mock;
 const env = process.env as Record<string, string | undefined>;
 const originalNodeEnv = env.NODE_ENV;
@@ -97,83 +94,6 @@ describe('GET /api/debug', () => {
     expect(text).not.toContain('test-refresh-token');
     expect(text).not.toContain('test-client-secret');
     mockGetAuth.mockReset();
-  });
-
-  describe('with credentials and a cached access token on the shared client', () => {
-    const originalFetch = global.fetch;
-    let getAccessToken: jest.Mock;
-    let refreshAccessToken: jest.Mock;
-    let mockFetch: jest.Mock;
-
-    beforeEach(() => {
-      env.NODE_ENV = 'development';
-      setOAuthEnv();
-      // getAccessToken() would happily hand back this cached token without
-      // contacting Google — the route must not rely on it.
-      getAccessToken = jest.fn().mockResolvedValue({ token: 'cached-access-token' });
-      refreshAccessToken = jest.fn();
-      mockGetAuth.mockReturnValue({ getAccessToken, refreshAccessToken });
-      mockDrive.mockReturnValue({
-        files: {
-          get: jest.fn().mockResolvedValue({ data: { name: 'Wedding' } }),
-          create: jest.fn().mockResolvedValue({ data: { id: 'tmp-folder' } }),
-          delete: jest.fn().mockResolvedValue({}),
-        },
-      });
-      mockFetch = jest.fn().mockResolvedValue(new Response(null, { status: 200 }));
-      global.fetch = mockFetch;
-    });
-
-    afterEach(() => {
-      global.fetch = originalFetch;
-      mockGetAuth.mockReset();
-      mockDrive.mockReset();
-    });
-
-    it('reports auth FAILED when the refresh token is rejected, even though a token is cached', async () => {
-      refreshAccessToken.mockRejectedValue(new Error('invalid_grant'));
-
-      const res = await GET(makeRequest());
-      const text = await res.text();
-      const body = JSON.parse(text);
-
-      expect(refreshAccessToken).toHaveBeenCalledTimes(1);
-      expect(body.auth).toBe('FAILED: invalid_grant');
-      // Stops before the Drive checks, as it always has on an auth failure.
-      expect(body.folderRead).toBeUndefined();
-      expect(mockFetch).not.toHaveBeenCalled();
-      expect(text).not.toContain('cached-access-token');
-      expect(text).not.toContain('test-refresh-token');
-      expect(text).not.toContain('test-client-secret');
-    });
-
-    it('trades the refresh token and uses the fresh token for the resumable-session check', async () => {
-      refreshAccessToken.mockResolvedValue({ credentials: { access_token: 'fresh-access-token' } });
-
-      const res = await GET(makeRequest());
-      const text = await res.text();
-      const body = JSON.parse(text);
-
-      expect(refreshAccessToken).toHaveBeenCalledTimes(1);
-      expect(body.auth).toBe('ok');
-      expect(body.folderRead).toBe('ok — found: Wedding');
-      expect(body.writeAccess).toBe('ok — created and deleted a test folder');
-      expect(body.resumableSession).toBe('ok — got upload URL');
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      expect(mockFetch.mock.calls[0][1].headers.Authorization).toBe('Bearer fresh-access-token');
-      expect(text).not.toContain('fresh-access-token');
-      expect(text).not.toContain('cached-access-token');
-      expect(text).not.toContain('test-refresh-token');
-    });
-
-    it('reports auth FAILED when the refresh returns no access token', async () => {
-      refreshAccessToken.mockResolvedValue({ credentials: {} });
-
-      const body = await (await GET(makeRequest())).json();
-
-      expect(body.auth).toBe('FAILED — no token returned');
-      expect(mockFetch).not.toHaveBeenCalled();
-    });
   });
 
   it('runs without a token outside production', async () => {

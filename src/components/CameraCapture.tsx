@@ -66,8 +66,10 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [showVideoControls, setShowVideoControls] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const hideControlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // State updates don't land until the next render, so a fast double-tap could
   // start two uploads. A ref flips synchronously and blocks the second tap.
   const uploadingRef = useRef(false);
@@ -82,9 +84,21 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
   useEffect(
     () => () => {
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+      if (hideControlsTimeoutRef.current) clearTimeout(hideControlsTimeoutRef.current);
     },
     []
   );
+
+  const revealVideoControls = () => {
+    setShowVideoControls(true);
+    if (hideControlsTimeoutRef.current) clearTimeout(hideControlsTimeoutRef.current);
+    hideControlsTimeoutRef.current = setTimeout(() => setShowVideoControls(false), 3000);
+  };
+
+  const hideVideoControls = () => {
+    if (hideControlsTimeoutRef.current) clearTimeout(hideControlsTimeoutRef.current);
+    setShowVideoControls(false);
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -271,9 +285,16 @@ export function CameraCapture({ guestName, shotsRemaining, shotCount, onUploadSu
               // eslint-disable-next-line @next/next/no-img-element
               <img src={previewUrl} alt="Preview" className="w-full rounded-lg max-h-[60vh] object-cover" />
             ) : (
-              // Keep `controls` always on: toggling it on iOS leaves Safari's own
-              // play button stacked on top of the control bar.
-              <video src={previewUrl} controls playsInline className="w-full rounded-lg max-h-[60vh]" />
+              <video
+                src={previewUrl}
+                controls={showVideoControls}
+                playsInline
+                className="w-full rounded-lg max-h-[60vh]"
+                onMouseEnter={revealVideoControls}
+                onMouseMove={revealVideoControls}
+                onMouseLeave={hideVideoControls}
+                onTouchStart={revealVideoControls}
+              />
             )}
             <div className="flex gap-3">
               {/* No `disabled` here — iOS drops taps near disabled buttons. The
