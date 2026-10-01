@@ -104,6 +104,7 @@ The fix is to authenticate as the actual Google account that owns the Drive fold
 - Guest input is escaped before it goes into Drive search queries (names like `O'Brien` work, and can't widen a query).
 - Guest folders are shared as **anyone-with-the-link: reader** so thumbnails load. The root folder is never made public. If sharing a new folder fails, it's moved to trash so the next upload retries cleanly.
 - Uploads are restricted to `image/*` and `video/*` within the size limits, so the endpoint can't be used as general file hosting.
+- `NEXT_PUBLIC_GOOGLE_API_KEY` is **visible in the browser by design**. It can read any "anyone with the link" Drive file (including the guest folders), never the private root, so it exposes nothing that wasn't already link-readable. Restrict it to the **Google Drive API only** — that's the real safeguard. The HTTP-referrer restriction stops other websites embedding it, but any non-browser client can fake a Referer. Abuse at worst hits Drive's free, capped quota (403s), and the lightbox then falls back to Drive's player.
 
 ---
 
@@ -123,6 +124,7 @@ GOOGLE_CLIENT_SECRET=
 GOOGLE_REFRESH_TOKEN=
 GOOGLE_DRIVE_ROOT_FOLDER_ID=
 DEBUG_TOKEN=            # optional, only used in production
+NEXT_PUBLIC_GOOGLE_API_KEY=   # optional; without it videos play in Drive's iframe player
 ```
 
 See [Getting credentials](#getting-credentials) below.
@@ -160,6 +162,15 @@ Go to [OAuth Playground](https://developers.google.com/oauthplayground):
 Create a folder in Google Drive. Copy the ID from the URL:
 `https://drive.google.com/drive/folders/THIS_IS_THE_ID`
 
+### 5. Get an API key (for video playback)
+
+APIs & Services → Credentials → **Create credentials → API key**, then edit the key:
+
+- Application restrictions → **HTTP referrers**: `https://<prod-domain>/*` and `http://localhost:3000/*` (add `http://192.168.x.x:3000/*` to test from your phone over LAN, and your `*.vercel.app` domain if you use preview deployments — otherwise those fall back to Drive's player)
+- API restrictions → **Restrict key** → **Google Drive API** only
+
+Without the key, the lightbox falls back to Drive's `/preview` player.
+
 ---
 
 ## Deployment
@@ -174,6 +185,7 @@ vercel env add GOOGLE_CLIENT_SECRET
 vercel env add GOOGLE_REFRESH_TOKEN
 vercel env add GOOGLE_DRIVE_ROOT_FOLDER_ID
 vercel env add DEBUG_TOKEN   # optional — only if you want /api/debug in production
+vercel env add NEXT_PUBLIC_GOOGLE_API_KEY   # optional — native video playback; inlined at build time, so redeploy after changing it
 ```
 
 A manual `vercel --prod` from your machine still works if you need it.
@@ -220,6 +232,6 @@ Mobile Safari has a few behaviours that broke the app during development:
 - **`<form>` elements** — submitting a form refreshes the page on iOS. The name entry uses `type="button"` + `onClick` instead.
 - **`autoFocus`** — opens the keyboard immediately on load, pushing the submit button off-screen. Removed.
 - **`localStorage` in Private Browsing** — Safari throws on any `localStorage` access. All calls are wrapped in try/catch with an in-memory fallback.
-- **Video previews** — need `playsInline` to play inline instead of jumping to fullscreen.
+- **Video previews** — need `playsInline` to play inline instead of jumping to fullscreen. Keep `controls` always on: toggling it on touch makes iOS stack a second play button over the control bar.
 - **Re-picking the same file** — the file input is reset after each pick, otherwise choosing the same file again (e.g. after a "too large" error) fires no change event.
-- **Drive video playback** — Drive's direct file links block cross-origin loading, so the lightbox shows photos from an upsized thumbnail and plays videos in Google's embeddable `/preview` player.
+- **Drive video playback** — Drive's direct file links block cross-origin loading, so the lightbox shows photos from an upsized thumbnail. Videos play in a native `<video>` straight from `googleapis.com/drive/v3/files/<id>?alt=media&key=…`, which allows CORS and Range requests, so iOS shows only its own controls. They don't go through our API: Vercel's response cap forced small sequential chunks and playback stalled. With no key, a type the browser can't play, or a playback error, the lightbox falls back to Drive's `/preview` iframe (whose controls stack with iOS's).

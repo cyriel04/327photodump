@@ -45,11 +45,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(results);
   }
 
-  // 2. Try getting an access token
+  // 2. Trade the refresh token for a new access token. getAccessToken() would
+  // return the shared client's cached token without contacting Google, so an
+  // expired/revoked refresh token (invalid_grant) would still look "ok" for up
+  // to an hour. refreshAccessToken() always calls Google, and only updates the
+  // shared client's credentials when the exchange succeeds.
+  let accessToken: string;
   try {
-    const auth = getAuth();
-    const { token } = await auth.getAccessToken();
-    results.auth = token ? 'ok' : 'FAILED — no token returned';
+    const { credentials } = await getAuth().refreshAccessToken();
+    if (!credentials.access_token) {
+      results.auth = 'FAILED — no token returned';
+      return NextResponse.json(results);
+    }
+    accessToken = credentials.access_token;
+    results.auth = 'ok';
   } catch (e) {
     results.auth = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
     return NextResponse.json(results);
@@ -82,16 +91,15 @@ export async function GET(request: NextRequest) {
     results.writeAccess = `FAILED: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  // 5. Test resumable upload session creation
+  // 5. Test resumable upload session creation, with the token just obtained
+  // from Google in step 2 rather than a possibly stale cached one.
   try {
-    const auth = getAuth();
-    const { token } = await auth.getAccessToken();
     const res = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
           'X-Upload-Content-Type': 'image/jpeg',
           'X-Upload-Content-Length': '1000',

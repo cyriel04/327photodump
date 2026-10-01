@@ -3,14 +3,70 @@ import { GalleryFile, GalleryFeedEntry } from '@/types';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 
-export function getAuth() {
-  const oauth2Client = new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID!,
-    process.env.GOOGLE_CLIENT_SECRET!,
-    'urn:ietf:wg:oauth:2.0:oob',
-  );
-  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
+type AuthClient = InstanceType<typeof google.auth.OAuth2>;
+
+// One client per server instance, so google-auth-library's access-token cache
+// survives across requests: every helper reuses one token until it nears
+// expiry instead of each doing a refresh-token exchange. Keyed on the
+// credentials so a changed env (tests, a rotated refresh token) gets a fresh
+// client rather than a stale token.
+let authClient: { key: string; client: AuthClient } | null = null;
+
+export function getAuth(): AuthClient {
+  const clientId = process.env.GOOGLE_CLIENT_ID!;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN!;
+  const key = JSON.stringify([clientId, clientSecret, refreshToken]);
+  if (authClient?.key === key) return authClient.client;
+
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
+  oauth2Client.setCredentials({ refresh_token: refreshToken });
+  authClient = { key, client: oauth2Client };
   return oauth2Client;
+}
+
+/** Test hook: forget the shared OAuth2 client so the next getAuth() builds one. */
+export function resetAuthClient(): void {
+  authClient = null;
+}
+
+/**
+ * `fetch` a Drive endpoint with the shared client's access token. The token is
+ * cached, so if Google revoked it early Drive answers 401 until it would have
+ * expired; on a 401 we force one refresh-token exchange and retry exactly once.
+ * Any other status or a network error is returned/thrown untouched, so a
+ * non-idempotent request is never sent twice except after a 401 (which Drive
+ * rejected before doing anything). `init` must be re-sendable (string body).
+ */
+async function fetchWithDriveAuth(
+  auth: AuthClient,
+  url: string,
+  init: Omit<RequestInit, 'headers'> & { headers: Record<string, string> },
+): Promise<Response> {
+  const send = (token: string | null | undefined) =>
+    fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+
+  const { token } = await auth.getAccessToken();
+  const response = await send(token);
+  if (response.status !== 401) return response;
+
+  // Release the discarded 401 body so it doesn't hold the connection open.
+  await response.body?.cancel().catch(() => {});
+
+  // A concurrent request may already have replaced the revoked token; use that
+  // rather than exchanging the refresh token again.
+  const current = auth.credentials?.access_token;
+  let fresh: string | null | undefined;
+  if (current && current !== token) {
+    fresh = current;
+  } else {
+    // refreshAccessToken() always contacts Google (it ignores the cache) and
+    // only replaces the shared credentials when the exchange succeeds.
+    const { credentials } = await auth.refreshAccessToken();
+    fresh = credentials.access_token;
+  }
+  if (!fresh) throw new Error('Drive access token refresh returned no token');
+  return send(fresh);
 }
 
 /**
@@ -245,10 +301,9 @@ export async function createResumableUploadSession(
   origin?: string,
 ): Promise<string> {
   const auth = getAuth();
-  const { token } = await auth.getAccessToken();
 
+  // Authorization is added by fetchWithDriveAuth.
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Upload-Content-Type': mimeType,
     'X-Upload-Content-Length': String(fileSize),
@@ -258,7 +313,8 @@ export async function createResumableUploadSession(
   // allowing the browser to PUT the file directly to Google Drive.
   if (origin) headers['Origin'] = origin;
 
-  const response = await fetch(
+  const response = await fetchWithDriveAuth(
+    auth,
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
     {
       method: 'POST',
