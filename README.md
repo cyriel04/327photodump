@@ -12,7 +12,7 @@ Each guest gets their own subfolder. The couple gets everything in one place.
 
 ## How it works
 
-1. Guest scans the QR code at the venue
+1. Guest scans the QR code at the venue (the link carries the [guest access code](#guest-access-code))
 2. Types their name or nickname
 3. Taps **Take Photo** or **Record Video** — the phone's native camera opens
 4. Previews the shot, taps **Upload** (with a progress bar)
@@ -62,6 +62,8 @@ src/
     google-drive.ts           # server-only Drive access
     use-guest-session.ts      # name + shot count, localStorage with fallback
     upload-limits.ts          # limits shared by client and server
+    access-code.ts            # guest access code + cookie checks
+  proxy.ts                    # guest access gate for every page and API route
   types/index.ts              # API request/response shapes
   __tests__/                  # api/, components/, lib/
 ```
@@ -74,6 +76,8 @@ src/
 | `/api/gallery/guest?guestName=` | `GET` | `{ files }` newest first, `[]` for an unknown guest (never creates a folder) |
 | `/api/gallery/feed` | `GET` | `{ guests }` one entry per name, most recent first |
 | `/api/debug` | `GET` | Auth-chain checks; `404` in production unless `?token=` matches `DEBUG_TOKEN` |
+
+Without a guest access cookie, API routes (except `/api/debug`) return `401` and pages show the locked screen (see [Guest access code](#guest-access-code)).
 
 Error responses carry a generic `error` message only — raw Drive errors are logged server-side, never returned.
 
@@ -123,6 +127,7 @@ GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REFRESH_TOKEN=
 GOOGLE_DRIVE_ROOT_FOLDER_ID=
+GUEST_ACCESS_CODE=      # optional locally (no gate when unset), required in production
 DEBUG_TOKEN=            # optional, only used in production
 NEXT_PUBLIC_GOOGLE_API_KEY=   # optional; without it videos play in Drive's iframe player
 ```
@@ -184,11 +189,22 @@ vercel env add GOOGLE_CLIENT_ID
 vercel env add GOOGLE_CLIENT_SECRET
 vercel env add GOOGLE_REFRESH_TOKEN
 vercel env add GOOGLE_DRIVE_ROOT_FOLDER_ID
+vercel env add GUEST_ACCESS_CODE   # required — without it every guest sees the locked page
 vercel env add DEBUG_TOKEN   # optional — only if you want /api/debug in production
 vercel env add NEXT_PUBLIC_GOOGLE_API_KEY   # optional — native video playback; inlined at build time, so redeploy after changing it
 ```
 
 A manual `vercel --prod` from your machine still works if you need it.
+
+### Guest access code
+
+The repo is public, so the camera and gallery are gated by a shared secret. Generate one (e.g. `openssl rand -base64 18 | tr '+/' '-_'`), set it as `GUEST_ACCESS_CODE`, and point the venue QR code at:
+
+```
+https://327photodump.vercel.app/?code=<GUEST_ACCESS_CODE>
+```
+
+[`src/proxy.ts`](src/proxy.ts) checks the code (in constant time), sets an httpOnly `guest_access` cookie holding a hash of it, and redirects to `/` so the code leaves the address bar. Without a valid cookie, pages show a "scan the QR code at the venue" screen and API routes return `401`. A wrong `?code=` from a guest who already has a valid cookie is just stripped from the URL — their cookie is kept, not replaced. The cookie is marked `Secure` when the request is over https, so testing over plain http on your LAN (`next start`, phone on the same Wi-Fi) still works. Rotating the code locks out everyone who already has a cookie, so print the QR with the final code. If `GUEST_ACCESS_CODE` is unset, production fails closed (everyone is locked out); local development is open.
 
 ### Debug route
 

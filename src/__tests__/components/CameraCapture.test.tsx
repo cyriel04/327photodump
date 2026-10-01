@@ -458,6 +458,55 @@ describe('CameraCapture', () => {
     });
   });
 
+  describe('when the guest access cookie is missing or expired (401)', () => {
+    const ACCESS_EXPIRED = 'Your access expired — scan the QR code at the venue again, then tap Upload to retry';
+
+    function mockUnauthorizedSession() {
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: 'Unauthorized' }),
+      }) as jest.Mock;
+    }
+
+    it('tells the guest to re-scan instead of saying the file is bad, and does not use a shot', async () => {
+      const onUploadSuccess = jest.fn();
+      mockUnauthorizedSession();
+      const xhrSpy = jest.spyOn(window, 'XMLHttpRequest');
+      renderCamera({ onUploadSuccess });
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(ACCESS_EXPIRED);
+      expect(screen.queryByText(/can't be uploaded/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/unauthorized/i)).not.toBeInTheDocument();
+      expect(onUploadSuccess).not.toHaveBeenCalled();
+      expect(xhrSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps the shot and both Upload and Retake so the guest can retry after re-scanning', async () => {
+      const onUploadSuccess = jest.fn();
+      mockUnauthorizedSession();
+      renderCamera({ onUploadSuccess });
+      await pickPhoto();
+
+      await userEvent.click(screen.getByRole('button', { name: /upload/i }));
+      await screen.findByText(ACCESS_EXPIRED);
+
+      expect(screen.getByRole('img', { name: 'Preview' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /retake/i })).toBeInTheDocument();
+
+      // Guest re-scans the QR in another tab, then comes back and retries the same shot.
+      mockUploadSession();
+      mockXhr('success');
+      await userEvent.click(screen.getByRole('button', { name: /^upload$/i }));
+
+      await waitFor(() => expect(onUploadSuccess).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText(ACCESS_EXPIRED)).not.toBeInTheDocument();
+    });
+  });
+
   it('revokes the preview object URL on retake', async () => {
     renderCamera();
     await pickPhoto();
