@@ -23,7 +23,7 @@ When the film is finished, the guest gets a gallery:
 
 - **My Shots** — a grid of everything they uploaded
 - **Feed** — swipe through other guests' shots, one guest at a time, most recently active first
-- **Lightbox** — full-screen viewer with swipe, arrow keys and Escape; videos play in Google's Drive player
+- **Lightbox** — full-screen viewer with swipe, arrow keys and Escape; videos play natively, streamed straight from Google Drive (Drive's player as a fallback; see [iOS quirks](#ios-quirks-worth-knowing))
 
 Shot count is tracked in `localStorage` so it survives page refreshes. No accounts and no server-side session.
 
@@ -50,6 +50,7 @@ Shot count is tracked in `localStorage` so it survives page refreshes. No accoun
 src/
   app/
     page.tsx                  # NameEntry → CameraCapture → Gallery
+    locked/page.tsx           # "scan the QR code" screen (proxy rewrite target)
     api/
       upload-session/         # POST: create a resumable Drive upload session
       gallery/guest/          # GET: one guest's files (all same-name folders)
@@ -65,7 +66,7 @@ src/
     access-code.ts            # guest access code + cookie checks
   proxy.ts                    # guest access gate for every page and API route
   types/index.ts              # API request/response shapes
-  __tests__/                  # api/, components/, lib/
+  __tests__/                  # api/, components/, lib/, proxy.test.ts
 ```
 
 ### API
@@ -77,7 +78,7 @@ src/
 | `/api/gallery/feed` | `GET` | `{ guests }` one entry per name, most recent first |
 | `/api/debug` | `GET` | Auth-chain checks; `404` in production unless `?token=` matches `DEBUG_TOKEN` |
 
-Without a guest access cookie, API routes (except `/api/debug`) return `401` and pages show the locked screen (see [Guest access code](#guest-access-code)).
+Without a guest access cookie, API routes (except `/api/debug`) return `401` and pages show the locked screen (see [Guest access code](#guest-access-code)). If the app gets a `401` mid-session (cookie cleared or expired), My Shots and the Feed show "Your access expired — scan the QR code at the venue again". The camera keeps the unsent shot and adds ", then tap Upload to retry", so no shot is used up.
 
 Error responses carry a generic `error` message only — raw Drive errors are logged server-side, never returned.
 
@@ -101,6 +102,8 @@ Service accounts have no Google Drive storage quota. Files they create fail with
 ```
 
 The fix is to authenticate as the actual Google account that owns the Drive folder, using a long-lived OAuth2 refresh token stored in environment variables.
+
+Each server instance keeps one shared OAuth2 client, so the access token is cached and reused across requests instead of exchanging the refresh token every time. If Drive rejects a cached token with `401`, the request refreshes it once and retries. The `googleapis` client does this itself; the resumable upload-session POST uses raw `fetch`, so `createResumableUploadSession` does it explicitly (and only on `401`, so the POST is never sent twice otherwise).
 
 ### Security notes
 
@@ -204,11 +207,11 @@ The repo is public, so the camera and gallery are gated by a shared secret. Gene
 https://327photodump.vercel.app/?code=<GUEST_ACCESS_CODE>
 ```
 
-[`src/proxy.ts`](src/proxy.ts) checks the code (in constant time), sets an httpOnly `guest_access` cookie holding a hash of it, and redirects to `/` so the code leaves the address bar. Without a valid cookie, pages show a "scan the QR code at the venue" screen and API routes return `401`. A wrong `?code=` from a guest who already has a valid cookie is just stripped from the URL — their cookie is kept, not replaced. The cookie is marked `Secure` when the request is over https, so testing over plain http on your LAN (`next start`, phone on the same Wi-Fi) still works. Rotating the code locks out everyone who already has a cookie, so print the QR with the final code. If `GUEST_ACCESS_CODE` is unset, production fails closed (everyone is locked out); local development is open.
+[`src/proxy.ts`](src/proxy.ts) checks the code (in constant time), sets an httpOnly `guest_access` cookie holding a hash of it (valid for one year), and redirects to `/` so the code leaves the address bar. Without a valid cookie, pages show a "scan the QR code at the venue" screen and API routes return `401`. A wrong `?code=` from a guest who already has a valid cookie is just stripped from the URL — their cookie is kept, not replaced. The cookie is marked `Secure` when the request is over https, so testing over plain http on your LAN (`next start`, phone on the same Wi-Fi) still works. Rotating the code locks out everyone who already has a cookie, so print the QR with the final code. If `GUEST_ACCESS_CODE` is unset, production fails closed (everyone is locked out); local development is open.
 
 ### Debug route
 
-`/api/debug` checks each step of the auth chain — env vars, token exchange, folder read, folder write, and resumable session creation. Useful for diagnosing issues without digging into logs. The folder ID is partially redacted in the output.
+`/api/debug` checks each step of the auth chain — env vars, token exchange, folder read, folder write, and resumable session creation. Useful for diagnosing issues without digging into logs. The folder ID is partially redacted in the output. The auth step always exchanges the refresh token with Google (it skips the cached access token), so an expired or revoked refresh token shows up as `invalid_grant` straight away.
 
 Because it creates and deletes a test folder and opens an upload session, the route is locked down in production: it returns `404` unless a `DEBUG_TOKEN` env var is set **and** the request passes it as a query param, e.g. `/api/debug?token=<your DEBUG_TOKEN>` (compared in constant time). Leave `DEBUG_TOKEN` unset to disable the route entirely in production. In local development (`npm run dev`) it's open with no token.
 
@@ -223,7 +226,7 @@ npx tsc --noEmit    # typecheck
 npm run build
 ```
 
-Jest suites cover the Drive library (with `googleapis` and `fetch` mocked — tests never call real Drive), every API route, request validation, the localStorage hook, and the UI components.
+Jest suites cover the Drive library (with `googleapis` and `fetch` mocked — tests never call real Drive), every API route, the guest access proxy, request validation, the localStorage hook, and the UI components.
 
 [CI](.github/workflows/ci.yml) runs lint → typecheck → tests → build on every PR to `main` and every push to `main`. The `build` check is **required** — a PR can't merge until it passes and the branch is up to date with `main`.
 
