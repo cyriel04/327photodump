@@ -222,4 +222,5 @@ Mobile Safari has a few behaviours that broke the app during development:
 - **`localStorage` in Private Browsing** — Safari throws on any `localStorage` access. All calls are wrapped in try/catch with an in-memory fallback.
 - **Video previews** — need `playsInline` to play inline instead of jumping to fullscreen.
 - **Re-picking the same file** — the file input is reset after each pick, otherwise choosing the same file again (e.g. after a "too large" error) fires no change event.
-- **Drive video playback** — Drive's direct file links block cross-origin loading, so the lightbox shows photos from an upsized thumbnail and plays videos in Google's embeddable `/preview` player.
+- **Drive video playback** — Drive's direct file links block cross-origin loading, so the lightbox shows photos from an upsized thumbnail and streams videos through `/api/video` into a plain `<video>`. Drive's `/preview` player would stack its controls on top of iOS Safari's native ones, so it's only a fallback for formats the browser can't decode (e.g. iPhone HEVC `.mov` on Android or Firefox).
+- **Native video controls** — keep `controls` always on. Toggling it on touch leaves Safari's own play button stacked on top of the control bar.

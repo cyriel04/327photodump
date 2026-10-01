@@ -492,25 +492,15 @@ describe('CameraCapture', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith(url);
   });
 
-  it('clears the pending video-controls timer on unmount', async () => {
-    jest.useFakeTimers();
-    try {
-      const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
-      const { unmount } = renderCamera();
-      const videoInput = document.querySelector('input[accept="video/*"]') as HTMLInputElement;
-      await user.upload(videoInput, new File(['v'], 'clip.mp4', { type: 'video/mp4' }));
-      const clearSpy = jest.spyOn(global, 'clearTimeout');
-      const video = document.querySelector('video') as HTMLVideoElement;
-      fireEvent.touchStart(video);
-      expect(jest.getTimerCount()).toBeGreaterThan(0);
+  it('always shows native controls on the video preview (toggling them stacks iOS play buttons)', async () => {
+    renderCamera();
+    const videoInput = document.querySelector('input[accept="video/*"]') as HTMLInputElement;
+    await userEvent.upload(videoInput, new File(['v'], 'clip.mp4', { type: 'video/mp4' }));
 
-      unmount();
-
-      expect(clearSpy).toHaveBeenCalled();
-      expect(jest.getTimerCount()).toBe(0);
-    } finally {
-      jest.useRealTimers();
-    }
+    const video = document.querySelector('video') as HTMLVideoElement;
+    expect(video).toHaveAttribute('controls');
+    fireEvent.touchStart(video);
+    expect(video).toHaveAttribute('controls');
   });
 
   describe('uploaded file name', () => {
