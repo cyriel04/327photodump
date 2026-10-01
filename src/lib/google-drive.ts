@@ -3,71 +3,14 @@ import { GalleryFile, GalleryFeedEntry } from '@/types';
 
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 
-type AuthClient = InstanceType<typeof google.auth.OAuth2>;
-
-// One client per server instance, so google-auth-library's access-token cache
-// survives across requests: a video's many range requests (and every other
-// helper) reuse one token until it nears expiry instead of each doing a
-// refresh-token exchange. Keyed on the credentials so a changed env (tests,
-// a rotated refresh token) gets a fresh client rather than a stale token.
-let authClient: { key: string; client: AuthClient } | null = null;
-
-export function getAuth(): AuthClient {
-  const clientId = process.env.GOOGLE_CLIENT_ID!;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN!;
-  const key = JSON.stringify([clientId, clientSecret, refreshToken]);
-  if (authClient?.key === key) return authClient.client;
-
-  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'urn:ietf:wg:oauth:2.0:oob');
-  oauth2Client.setCredentials({ refresh_token: refreshToken });
-  authClient = { key, client: oauth2Client };
+export function getAuth() {
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID!,
+    process.env.GOOGLE_CLIENT_SECRET!,
+    'urn:ietf:wg:oauth:2.0:oob',
+  );
+  oauth2Client.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN! });
   return oauth2Client;
-}
-
-/** Test hook: forget the shared OAuth2 client so the next getAuth() builds one. */
-export function resetAuthClient(): void {
-  authClient = null;
-}
-
-/**
- * `fetch` a Drive endpoint with the shared client's access token. The token is
- * cached, so if Google revoked it early Drive answers 401 until it would have
- * expired; on a 401 we force one refresh-token exchange and retry exactly once.
- * Any other status, a network error or an abort is returned/thrown untouched,
- * so a non-idempotent request is never sent twice except after a 401 (which
- * Drive rejected before doing anything). `init` must be re-sendable (string
- * body); its signal is reused, so an abort still cancels the retry.
- */
-async function fetchWithDriveAuth(
-  auth: AuthClient,
-  url: string,
-  init: Omit<RequestInit, 'headers'> & { headers: Record<string, string> },
-): Promise<Response> {
-  const send = (token: string | null | undefined) =>
-    fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
-
-  const { token } = await auth.getAccessToken();
-  const response = await send(token);
-  if (response.status !== 401) return response;
-
-  // Release the discarded 401 body so it doesn't hold the connection open.
-  await response.body?.cancel().catch(() => {});
-
-  // A concurrent request may already have replaced the revoked token; use that
-  // rather than exchanging the refresh token again.
-  const current = auth.credentials?.access_token;
-  let fresh: string | null | undefined;
-  if (current && current !== token) {
-    fresh = current;
-  } else {
-    // refreshAccessToken() always contacts Google (it ignores the cache) and
-    // only replaces the shared credentials when the exchange succeeds.
-    const { credentials } = await auth.refreshAccessToken();
-    fresh = credentials.access_token;
-  }
-  if (!fresh) throw new Error('Drive access token refresh returned no token');
-  return send(fresh);
 }
 
 /**
@@ -294,103 +237,6 @@ export async function listGuestsByActivity(): Promise<GalleryFeedEntry[]> {
   );
 }
 
-// Drive file ids are URL-safe base64; anything else never reaches the API.
-const DRIVE_FILE_ID = /^[A-Za-z0-9_-]{10,100}$/;
-
-export function isDriveFileId(value: string): boolean {
-  return DRIVE_FILE_ID.test(value);
-}
-
-function isNotFound(error: unknown): boolean {
-  return (error as { response?: { status?: number } } | null)?.response?.status === 404;
-}
-
-// Only a plain `video/<subtype>` is served; it becomes the response Content-Type.
-const PLAIN_VIDEO_MIME = /^video\/[a-z0-9][a-z0-9.+-]*$/i;
-
-// A player sends many range requests per video (iOS: a probe, then ~one per
-// 4 MB). Remembering a positive check saves two files.get calls on each. Only
-// positives are cached, briefly: a video moved or trashed stays streamable for
-// at most the TTL, and its guest folder is `anyone: reader` anyway.
-const GUEST_VIDEO_CACHE_TTL_MS = 5 * 60 * 1000;
-const GUEST_VIDEO_CACHE_MAX = 500;
-const guestVideoCache = new Map<string, { mimeType: string; expiresAt: number }>();
-
-/** Test hook: forget every cached guest-video check. */
-export function clearGuestVideoCache(): void {
-  guestVideoCache.clear();
-}
-
-/**
- * The file's mime type if it is a non-trashed plain video with exactly one
- * parent, that parent being a non-trashed folder directly under the root (a
- * guest folder); otherwise null. Shortcuts, nested folders, files in the root
- * itself and multi-parent files are all rejected.
- */
-async function guestVideoMimeType(auth: AuthClient, fileId: string): Promise<string | null> {
-  const cached = guestVideoCache.get(fileId);
-  if (cached && cached.expiresAt > Date.now()) return cached.mimeType;
-  guestVideoCache.delete(fileId);
-
-  const drive = google.drive({ version: 'v3', auth });
-  const rootFolderId = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
-  if (!rootFolderId) return null;
-
-  try {
-    const file = await drive.files.get({ fileId, fields: 'mimeType, parents, trashed' });
-    const mimeType = file.data.mimeType;
-    if (file.data.trashed || !mimeType || !PLAIN_VIDEO_MIME.test(mimeType)) return null;
-    const parents = file.data.parents ?? [];
-    if (parents.length !== 1) return null;
-
-    const folder = await drive.files.get({ fileId: parents[0], fields: 'mimeType, parents, trashed' });
-    const isGuestFolder =
-      !folder.data.trashed &&
-      folder.data.mimeType === FOLDER_MIME_TYPE &&
-      (folder.data.parents ?? []).includes(rootFolderId);
-    if (!isGuestFolder) return null;
-
-    if (guestVideoCache.size >= GUEST_VIDEO_CACHE_MAX) {
-      // Map keeps insertion order: drop the oldest entry.
-      guestVideoCache.delete(guestVideoCache.keys().next().value!);
-    }
-    guestVideoCache.set(fileId, { mimeType, expiresAt: Date.now() + GUEST_VIDEO_CACHE_TTL_MS });
-    return mimeType;
-  } catch (error) {
-    if (isNotFound(error)) return null;
-    throw error;
-  }
-}
-
-/**
- * Fetch one byte range of a guest video from Drive. Returns null (without
- * downloading anything) unless the file is a guest video, so /api/video can't
- * stream any other file the account can read. `media` is Drive's raw response;
- * the caller decides what to relay. `mimeType` is the verified Drive metadata.
- */
-export async function fetchGuestVideo(
-  fileId: string,
-  range: string,
-  signal?: AbortSignal,
-): Promise<{ mimeType: string; media: Response } | null> {
-  // The shared client: its cached access token serves the metadata check and the
-  // download, and every later range request of the same video.
-  const auth = getAuth();
-  const mimeType = await guestVideoMimeType(auth, fileId);
-  if (!mimeType) return null;
-
-  const media = await fetchWithDriveAuth(
-    auth,
-    `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`,
-    {
-      // identity: Content-Length must describe the bytes we relay, not a gzip of them.
-      headers: { Range: range, 'Accept-Encoding': 'identity' },
-      signal,
-    },
-  );
-  return { mimeType, media };
-}
-
 export async function createResumableUploadSession(
   folderId: string,
   fileName: string,
@@ -399,9 +245,10 @@ export async function createResumableUploadSession(
   origin?: string,
 ): Promise<string> {
   const auth = getAuth();
+  const { token } = await auth.getAccessToken();
 
-  // Authorization is added by fetchWithDriveAuth.
   const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Upload-Content-Type': mimeType,
     'X-Upload-Content-Length': String(fileSize),
@@ -411,8 +258,7 @@ export async function createResumableUploadSession(
   // allowing the browser to PUT the file directly to Google Drive.
   if (origin) headers['Origin'] = origin;
 
-  const response = await fetchWithDriveAuth(
-    auth,
+  const response = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable',
     {
       method: 'POST',
