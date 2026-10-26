@@ -1,0 +1,60 @@
+name: Merge Dependabot PRs
+
+on:
+  schedule:
+    # 02:00 UTC, Monday to Friday
+    - cron: "0 2 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: dependabot-merge
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    name: merge
+    runs-on: ubuntu-latest
+    env:
+      # A personal access token makes the merges count as your own GitHub
+      # activity and lets the merge push trigger CI on main. GITHUB_TOKEN
+      # merges as github-actions[bot] and does neither, and it can't merge the
+      # GitHub Actions group PR because that PR edits .github/workflows/.
+      # Fine-grained PAT scopes: Contents, Pull requests, Workflows (read & write).
+      GH_TOKEN: ${{ secrets.DEPENDABOT_MERGE_TOKEN || github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Merge one passing Dependabot PR
+        run: |
+          prs=$(gh pr list --author "app/dependabot" --base main --state open --json number --jq '.[].number')
+
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot PRs."
+            exit 0
+          fi
+
+          for pr in $prs; do
+            # GitHub computes the state lazily, so the first read can be UNKNOWN.
+            for attempt in 1 2 3; do
+              state=$(gh pr view "$pr" --json mergeStateStatus,isDraft --jq 'if .isDraft then "DRAFT" else .mergeStateStatus end') || state="ERROR"
+              [ "$state" != "UNKNOWN" ] && break
+              sleep 10
+            done
+
+            if [ "$state" = "CLEAN" ]; then
+              echo "Merging #$pr"
+              # main requires branches to be up to date, so after one merge the
+              # rest are BEHIND. Stop here; Dependabot rebases them for tomorrow.
+              if gh pr merge "$pr" --merge --delete-branch; then
+                break
+              fi
+              echo "Merge of #$pr failed, trying the next one."
+            else
+              # BLOCKED = checks pending or failing, DIRTY = conflicts,
+              # BEHIND = not up to date with main. Try again tomorrow.
+              echo "Skipping #$pr ($state)"
+            fi
+          done
